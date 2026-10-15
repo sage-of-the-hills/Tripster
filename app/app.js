@@ -157,7 +157,19 @@ function renderHeader(){
     <h1>${esc(t.title)}</h1>
     <div class="trip-meta">${[`<span class="mono">${esc(fmtDay(t.start,true))} – ${esc(fmtDay(t.end,true))} ${pd(t.end)?pd(t.end).y:""}</span>`, n!=null?`<span>${n} nights</span>`:"", (t.travellers||[]).length?`<span>${esc(t.travellers.join(", "))}</span>`:""].filter(Boolean).join("")}</div>`;
 }
-function render(){
+// Redraws keep whatever someone is typing (live updates can arrive mid-sentence).
+function keepTyping(fn){
+  const v=$("#view"), saved={}; const act=document.activeElement; let focusId=null, sel=null;
+  v.querySelectorAll("input[id],textarea[id],select[id]").forEach(el=>{ if(el.type==="checkbox"||el.type==="radio"||el.type==="file") return; if(el.value!==el.defaultValue) saved[el.id]=el.value; });
+  const boxes={}; v.querySelectorAll('input[type="checkbox"][name]').forEach(el=>{ if(el.checked!==el.defaultChecked) boxes[el.name+"="+el.value]=el.checked; });
+  if(act&&act.id&&v.contains(act)){ focusId=act.id; try{ sel=[act.selectionStart,act.selectionEnd]; }catch(e){} }
+  fn();
+  Object.entries(saved).forEach(([id,val])=>{ const el=document.getElementById(id); if(el&&el.type!=="file") el.value=val; });
+  v.querySelectorAll('input[type="checkbox"][name]').forEach(el=>{ const k=el.name+"="+el.value; if(k in boxes) el.checked=boxes[k]; });
+  if(focusId){ const el=document.getElementById(focusId); if(el){ el.focus({preventScroll:true}); try{ if(sel&&sel[0]!=null) el.setSelectionRange(sel[0],sel[1]); }catch(e){} } }
+}
+function render(){ keepTyping(renderNow); }
+function renderNow(){
   renderHeader();
   const t=trip(), v=$("#view"), tabs=$("#tabs");
   if(S.screen==="builder"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewBuilder(); return; }
@@ -765,27 +777,24 @@ function viewHome(){
   else if(next){ const dd=daysUntil(next.start); const al=(S.alerts[next.id]||[]).length;
     lead = (dd>1? `${esc(next.title)} starts in <strong>${dd} days</strong>.` : dd===1? `${esc(next.title)} starts <strong>tomorrow</strong>.` : `You're on <strong>${esc(next.title)}</strong>. Have a great day out there.`) + (al?` <strong>${al} weather alert${al>1?"s":""}</strong> for your trip.`:""); }
   else lead="Where to next? Add a trip and Tripster lays it all out: bookings, stays, day maps, weather and the best things to see.";
-  return `${incomingCard()}<section class="hero">${HERO_ART}<div class="hero-in">
+  return `${accountBar()}${incomingCard()}<section class="hero">${HERO_ART}<div class="hero-in">
       <p class="hello">${esc(greeting())}${name?", "+esc(name):""}</p>
       <h1 class="hero-h">${name? (next&&daysUntil(next.start)<=0?"Enjoy the trip.":"Ready for the road?") : "Welcome to Tripster"}</h1>
       <p class="hero-lead">${lead}</p>
       ${next?`<div class="row"><button class="btn sun" data-open="${esc(next.id)}">Open ${esc(next.title)}</button></div>`:S.loaded?`<div class="row"><button class="btn sun" data-scroll-plan>Plan your first trip</button></div>`:""}
-      ${!name||S.renaming?`<form class="namebox" data-name-form><label for="name-in">${name?"Change your name":"What should we call you?"}</label><div class="row"><input id="name-in" autocomplete="given-name" placeholder="Your first name" value="${esc(name)}"><button class="btn sun">Save</button></div></form>`:""}
+      ${!name&&!CLOUD.user&&!S.renaming?`<form class="namebox" data-name-form><label for="name-in">${name?"Change your name":"What should we call you?"}</label><div class="row"><input id="name-in" autocomplete="given-name" placeholder="Your first name" value="${esc(name)}"><button class="btn sun">Save</button></div></form>`:""}
     </div></section>
     <div class="section-head"><h2>Your trips</h2>${ids.length?`<span class="small muted">Saved on this device</span>`:""}</div>
     ${ids.length? `<div class="grid tripgrid">${[...upcoming.map(id=>tripCard(all[id],false)),...past.map(id=>tripCard(all[id],true))].join("")}</div>` : `<div class="empty">${S.loaded?"No trips yet. Plan one below.":"Loading…"}</div>`}
     <div class="section-head" id="plan"><h2>Plan a new trip</h2><span class="small muted">Three ways to start</span></div>
     ${planBlock()}
-    <div class="section-head"><h2>App and data</h2></div>
-    <div class="grid cols-2">
-      <div class="card">${installCard()}</div>
-      <div class="card">${accountBlock(false)}</div>
-      <div class="card"><h3>Your data</h3>
-        <p class="small">Trips, ticks and saved forecasts stay on this device. Tripster only goes online to fetch weather, search places and look up nearby sights.</p>
-        <div class="row"><button class="btn" data-save="backup">Save backup</button><label class="btn" for="backup-in" style="cursor:pointer">Restore backup</label><input type="file" id="backup-in" accept=".json,application/json" hidden></div>
-        <p class="small" style="margin-top:12px">Weather alerts: <strong>${S.alertsOn?"on":"off"}</strong> <button class="linkbtn" data-alerts>${S.alertsOn?"Turn off":"Turn on"}</button>${name?` · Name: <strong>${esc(name)}</strong> <button class="linkbtn" data-rename>Change</button>`:""}</p>
-      </div>
-    </div>`;
+    <footer class="homefoot">
+      <details><summary>Install on this device</summary><div style="margin-top:8px">${installCard()}</div></details>
+      <span class="dot">·</span><button class="linkbtn" data-save="backup">Save backup</button>
+      <span class="dot">·</span><label class="linkbtn" for="backup-in" style="cursor:pointer">Restore backup</label><input type="file" id="backup-in" accept=".json,application/json" hidden>
+      <span class="dot">·</span><button class="linkbtn" data-alerts>Weather alerts: ${S.alertsOn?"on":"off"}</button>
+      <p class="small muted" style="flex-basis:100%;margin:6px 0 0">Trips are saved on this device${fbConfig()?"; shared trips also sync to your group":""}. Tripster goes online only for weather, places, travel guides${fbConfig()?" and shared trips":""}.</p>
+    </footer>`;
 }
 function createTrip(f){
   const title=f.title.value.trim(), start=f.start.value, end=f.end.value, msg=$("#nt-msg");
@@ -825,12 +834,13 @@ async function moreClicks(el){
   if(el.hasAttribute("data-scroll-plan")){ const p=$("#plan"); if(p) p.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
   if(el.hasAttribute("data-incoming-yes")&&S.incoming&&S.incoming.text){ const txt=S.incoming.text; S.incoming=null; loadTripText(txt); return true; }
   if(el.hasAttribute("data-incoming-no")){ S.incoming=null; render(); return true; }
+  if(el.hasAttribute("data-rename-cancel")){ S.renaming=false; render(); return true; }
   if(el.hasAttribute("data-rename")){ S.renaming=true; render(); const i=$("#name-in"); if(i) i.focus(); return true; }
   return false;
 }
 function onSubmit(f){
   if(cloudSubmit(f)) return;
-  if(f.hasAttribute("data-name-form")){ const v=($("#name-in").value||"").trim().slice(0,40); S.userName=v; S.renaming=false; store.set("ts.name",v); render(); if(v) toast("Hi "+v+"!"); return; }
+  if(f.hasAttribute("data-name-form")){ const v=($("#name-in").value||"").trim(); setName(v); S.renaming=false; render(); if(v) toast("Hi "+v+"!"); return; }
   if(f.hasAttribute("data-new-trip")) return createTrip(f);
   if(f.hasAttribute("data-place-search")) return searchPlaces($("#place-q").value);
 }
@@ -1405,7 +1415,11 @@ async function initCloud(){
     let db; try{ db=fsM.initializeFirestore(app,{localCache:fsM.persistentLocalCache({tabManager:fsM.persistentMultipleTabManager()})}); }catch(e){ db=fsM.getFirestore(app); }
     if(c.emulator){ authM.connectAuthEmulator(auth,"http://127.0.0.1:9099",{disableWarnings:true}); fsM.connectFirestoreEmulator(db,"127.0.0.1",8080); }
     Object.assign(CLOUD,{ready:true,auth,db,fs:fsM,am:authM});
-    authM.onAuthStateChanged(auth,u=>{ CLOUD.user=u; watchTrips(); render(); });
+    authM.onAuthStateChanged(auth,u=>{ CLOUD.user=u;
+      // one name everywhere: the account's name wins; an account without one takes the name typed on this device
+      if(u&&u.displayName&&u.displayName!==S.userName){ S.userName=u.displayName; store.set("ts.name",u.displayName); }
+      else if(u&&!u.displayName&&S.userName) authM.updateProfile(u,{displayName:S.userName}).catch(()=>{});
+      if(u) S.authOpen=false; watchTrips(); render(); });
   }catch(e){ CLOUD.err="Couldn't load sign-in. Check your connection and reopen the app."; }
   CLOUD.loading=false; render();
 }
@@ -1480,18 +1494,35 @@ function meKey(t){ const me=myEmail(); const ps=tripPeople(t);
   const byName=S.userName&&ps.find(p=>p.name.toLowerCase()===S.userName.toLowerCase()); return byName? pKey(byName) : null; }
 function statusMetaLine(kind,b){ const t=trip(); const m=t&&S.statusMeta[t.id]&&S.statusMeta[t.id][kind+":"+b.id]; return m? `<span class="small muted">by ${esc(nameOf(t,m.by))} · ${esc(ago(m.at))}</span>` : ""; }
 
-function accountBlock(compact){
-  if(!fbConfig()) return `<h3>Shared trips</h3><p class="small" style="margin:0">Not set up yet. To let everyone on a trip share bookings and expenses, add free Firebase settings to <span class="mono">config.json</span> (see docs/shared-trips.md in the Tripster project).</p>`;
-  if(CLOUD.err&&!CLOUD.ready) return `<h3>Account</h3><p class="small" style="color:var(--bad)">${esc(CLOUD.err)}</p>`;
-  if(!CLOUD.ready) return `<h3>Account</h3><p class="small muted">Loading…</p>`;
-  const u=CLOUD.user;
-  if(u&&u.emailVerified) return `<h3>Account</h3><p class="small" style="margin:0 0 8px">Signed in as <strong>${esc(u.email)}</strong>. Trips you're added to appear automatically.</p><div class="row"><button class="btn" data-auth-out>Sign out</button></div>`;
-  if(u) return `<h3>Confirm your email</h3><p class="small" style="margin:0 0 8px">We sent a link to <strong>${esc(u.email)}</strong>. Open it, then come back and tap the button below.</p>
-    <div class="row"><button class="btn primary" data-auth-check>I've confirmed it</button><button class="btn" data-auth-resend>Send again</button><button class="btn" data-auth-out>Sign out</button></div>${S.authMsg?`<p class="small" role="status">${esc(S.authMsg)}</p>`:""}`;
-  return `<h3>${compact?"Sign in to share this trip":"Account"}</h3><p class="small" style="margin:0 0 8px">Sign in with your email so the people on your trips see the same bookings, ticks and expenses.</p>
-    <form class="form" data-auth-form><div><label for="au-email">Email</label><input id="au-email" type="email" autocomplete="email" required></div><div><label for="au-pass">Password</label><input id="au-pass" type="password" autocomplete="current-password" minlength="6" required></div>
-    <div class="row"><button type="button" class="btn primary" data-auth-mode="in" ${S.authBusy?"disabled":""}>Sign in</button><button type="button" class="btn" data-auth-mode="up" ${S.authBusy?"disabled":""}>Create account</button><button type="button" class="linkbtn small" data-auth-reset>Forgot password?</button></div></form>
-    ${S.authMsg?`<p class="small" role="status" style="color:var(--bad)">${esc(S.authMsg)}</p>`:""}`;
+function authForm(){
+  const up=S.authMode==="up";
+  return `<form class="authform" data-auth-form>
+    <div class="seg" role="tablist"><button type="button" data-auth-tab="in" aria-pressed="${!up}">Sign in</button><button type="button" data-auth-tab="up" aria-pressed="${up}">Create account</button></div>
+    ${up?`<input id="au-name" placeholder="Your name" autocomplete="given-name" value="${esc(S.userName||"")}" aria-label="Your name" required>`:""}
+    <input id="au-email" type="email" placeholder="Email" autocomplete="email" aria-label="Email" required>
+    <input id="au-pass" type="password" placeholder="Password${up?" (6+ characters)":""}" autocomplete="${up?"new-password":"current-password"}" minlength="6" aria-label="Password" required>
+    <div class="row"><button class="btn primary" ${S.authBusy?"disabled":""}>${up?"Create account":"Sign in"}</button>${up?"":`<button type="button" class="linkbtn small" data-auth-reset>Forgot password?</button>`}</div>
+    ${S.authMsg?`<p class="small" role="status" style="margin:0;color:var(--bad)">${esc(S.authMsg)}</p>`:""}</form>`;
+}
+// The slim bar at the top of the home page: who you are, sign in or out, change name
+function accountBar(){
+  const u=CLOUD.user, name=S.userName;
+  const nameBit = S.renaming
+    ? `<form class="row" data-name-form style="flex:1"><input id="name-in" class="field" style="flex:1;min-width:120px;padding:6px 10px" placeholder="Your name" value="${esc(name||"")}" autocomplete="given-name"><button class="btn primary">Save</button><button type="button" class="btn" data-rename-cancel>Cancel</button></form>`
+    : `<span class="acct-who"><span class="avatar sm">${esc((name||(u&&u.email)||"?").slice(0,1).toUpperCase())}</span><span><strong>${esc(name||"Guest")}</strong>${u?`<span class="small muted"> · ${esc(u.email)}</span>`:""}</span><button class="linkbtn small" data-rename>${name?"Change name":"Add your name"}</button></span>`;
+  let right="";
+  if(!fbConfig()) right="";
+  else if(!CLOUD.ready) right=CLOUD.err?`<span class="small" style="color:var(--bad)">${esc(CLOUD.err)}</span>`:`<span class="small muted">…</span>`;
+  else if(u&&u.emailVerified) right=`<button class="btn sm" data-auth-out>Sign out</button>`;
+  else if(u) right=`<span class="small">Confirm the email we sent you, then</span><button class="btn sm primary" data-auth-check>I've confirmed</button><button class="btn sm" data-auth-resend>Resend</button><button class="btn sm" data-auth-out>Sign out</button>`;
+  else right=`<span class="small muted acct-hint">Sign in to share trips with your group</span><button class="btn sm primary" data-acct-open aria-expanded="${!!S.authOpen}">${S.authOpen?"Close":"Sign in"}</button>`;
+  return `<div class="acctbar"><div class="acct-row">${nameBit}<span class="acct-right">${right}</span></div>
+    ${u&&!u.emailVerified&&S.authMsg?`<p class="small" style="margin:6px 0 0">${esc(S.authMsg)}</p>`:""}
+    ${!u&&S.authOpen&&CLOUD.ready?authForm():""}</div>`;
+}
+function setName(v){
+  v=String(v||"").trim().slice(0,40); S.userName=v; store.set("ts.name",v);
+  if(CLOUD.ready&&CLOUD.user&&v) CLOUD.am.updateProfile(CLOUD.user,{displayName:v}).catch(()=>{});
 }
 function authError(e){ const c=(e&&e.code)||""; return ({"auth/invalid-credential":"Wrong email or password.","auth/wrong-password":"Wrong email or password.","auth/user-not-found":"No account with that email. Tap Create account.","auth/email-already-in-use":"That email already has an account. Tap Sign in.","auth/weak-password":"Use at least 6 characters for the password.","auth/invalid-email":"That email address doesn't look right.","auth/too-many-requests":"Too many tries. Wait a few minutes.","auth/network-request-failed":"No connection. Try again when you're online."})[c]||("Couldn't sign in ("+c+").");}
 async function doAuth(mode){
@@ -1499,14 +1530,17 @@ async function doAuth(mode){
   if(!email||!pass){ S.authMsg="Enter your email and a password."; render(); return; }
   S.authBusy=true; S.authMsg=""; render();
   try{
-    if(mode==="up"){ const cred=await am.createUserWithEmailAndPassword(auth,email.trim(),pass); await am.sendEmailVerification(cred.user); S.authMsg="Check your inbox for the confirmation link."; }
+    if(mode==="up"){ const nm=(($("#au-name")||{}).value||"").trim(); if(!nm){ S.authMsg="Add your name."; S.authBusy=false; render(); return; }
+      const cred=await am.createUserWithEmailAndPassword(auth,email.trim(),pass); await am.updateProfile(cred.user,{displayName:nm}); setName(nm); CLOUD.user=auth.currentUser;
+      await am.sendEmailVerification(cred.user); S.authMsg="We sent a confirmation link to "+email.trim()+". Open it, then tap I've confirmed."; }
     else await am.signInWithEmailAndPassword(auth,email.trim(),pass);
   }catch(e){ S.authMsg=authError(e); }
   S.authBusy=false; render();
 }
 async function authClick(el){
   const {am,auth}=CLOUD;
-  if(el.dataset.authMode){ el.closest("form")&&el.closest("form").reportValidity&&el.closest("form").reportValidity(); await doAuth(el.dataset.authMode); return true; }
+  if(el.dataset.authTab){ S.authMode=el.dataset.authTab; S.authMsg=""; render(); return true; }
+  if(el.hasAttribute("data-acct-open")){ S.authOpen=!S.authOpen; S.authMsg=""; render(); if(S.authOpen){ const i=$("#au-email"); if(i) i.focus(); } return true; }
   if(el.hasAttribute("data-auth-out")){ await am.signOut(auth); S.shared={}; S.authMsg=""; render(); toast("Signed out"); return true; }
   if(el.hasAttribute("data-auth-resend")){ try{ await am.sendEmailVerification(auth.currentUser); S.authMsg="Sent. Check your inbox and spam folder."; }catch(e){ S.authMsg=authError(e); } render(); return true; }
   if(el.hasAttribute("data-auth-check")){ try{ await auth.currentUser.reload(); await auth.currentUser.getIdToken(true); CLOUD.user=auth.currentUser; if(CLOUD.user.emailVerified){ S.authMsg=""; watchTrips(); toast("Email confirmed"); } else S.authMsg="Not confirmed yet. Open the link in the email first."; }catch(e){ S.authMsg=authError(e); } render(); return true; }
@@ -1524,7 +1558,7 @@ function peopleCard(t){
   let share;
   if(sh) share=`<p class="small" style="margin:8px 0 0"><span class="pill s-booked">Shared</span> Everyone listed with an email sees this trip, its ticks and expenses live once they sign in to Tripster with that email. Owner: ${esc(nameOf(t,sh.owner))}.${sh.owner!==me?" Only the owner can add or remove people.":""}</p>`;
   else if(!fbConfig()) share=`<p class="small muted" style="margin:8px 0 0">Saved on this device only. Shared trips need the free Firebase setup (docs/shared-trips.md).</p>`;
-  else if(!verified()) share=`<div style="margin-top:10px">${accountBlock(true)}</div>`;
+  else if(!verified()) share= CLOUD.user? `<p class="small" style="margin:8px 0 0">Confirm your email first (see the bar at the top of the home page), then share from here.</p>` : `<p class="small" style="margin:8px 0">Sign in to share this trip so everyone sees the same bookings and expenses.</p>${CLOUD.ready?authForm():""}`;
   else share=`<p class="small" style="margin:8px 0">This trip is only on this device. Share it with the people above so you all see the same bookings, ticks and expenses.</p><button class="btn primary" data-share-group ${ps.some(p=>p.email)?"":"disabled"}>Share with the group</button>${ps.some(p=>p.email)?"":`<span class="small muted"> Add at least one email first.</span>`}`;
   return `<div class="card" id="people-card"><div class="spread"><h3>People</h3><button class="btn" data-people-edit ${sh&&sh.owner!==me?"disabled":""}>Edit</button></div>
     ${ps.length?`<ul class="plist">${ps.map(p=>`<li><span class="avatar">${esc((p.name||"?").slice(0,1).toUpperCase())}</span><span><strong>${esc(p.name)}</strong>${p.email===me&&me?` <span class="small muted">(you)</span>`:""}<br><span class="small muted">${p.email?esc(p.email):"No email"}</span></span>${sh&&p.email&&sh.members.includes(p.email)?`<span class="pill s-booked" style="margin-left:auto">Has access</span>`:""}</li>`).join("")}</ul>`:`<p class="small muted">No one added yet.</p>`}
@@ -1624,7 +1658,7 @@ function saveExpense(){
   const x={desc,amount:amt,paidBy:$("#exp-paid").value,split:keys,date:$("#exp-date").value||todayISO(),kind:"expense",by:myEmail()||meKey(t)||"",at:nowISO()};
   const id=E?E.id:("e"+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
   writeExpense(t,id,x, E?`edited "${desc}" (${fmtMoney(amt,t.currency)})`:`added "${desc}" (${fmtMoney(amt,t.currency)}, paid by ${nameOf(t,x.paidBy)})`);
-  S.expEdit=null; render(); toast(E?"Expense updated":"Expense added");
+  S.expEdit=null; const fm=document.querySelector("[data-exp-form]"); if(fm) fm.reset(); render(); toast(E?"Expense updated":"Expense added");
 }
 function writeExpense(t,id,x,note){
   if(isShared(t)){ const {fs,db}=CLOUD; const all=(S.exp[t.id]||[]).filter(e=>e.id!==id); S.exp[t.id]=all.concat([Object.assign({id},x)]);
@@ -1651,7 +1685,7 @@ async function cloudClick(el){
   if(el.hasAttribute("data-people-add")){ const f=el.closest("form"); const n=+f.count.value; const row=document.createElement("div"); row.className="two prow"; row.innerHTML=`<input name="pn${n}" placeholder="Name" aria-label="Name ${n+1}"><input name="pe${n}" type="email" placeholder="Email (optional)" aria-label="Email ${n+1}">`; f.count.value=n+1; f.insertBefore(row,f.count); row.querySelector("input").focus(); return true; }
   if(el.hasAttribute("data-share-group")){ shareGroup(); return true; }
   if(el.dataset.expEdit){ S.expEdit=el.dataset.expEdit; render(); const f=document.querySelector("[data-exp-form]"); if(f) f.scrollIntoView({block:"start",behavior:"smooth"}); setTimeout(expEachText,0); return true; }
-  if(el.hasAttribute("data-exp-cancel")){ S.expEdit=null; render(); return true; }
+  if(el.hasAttribute("data-exp-cancel")){ S.expEdit=null; const fm=document.querySelector("[data-exp-form]"); if(fm) fm.reset(); render(); return true; }
   if(el.dataset.expDel){ const id=el.dataset.expDel; if(S.confirm!=="exp:"+id){ S.confirm="exp:"+id; render(); return true; } S.confirm=null; deleteExpense(t,id); render(); toast("Deleted"); return true; }
   if(el.dataset.settle){ const [from,to,amt]=el.dataset.settle.split("|"); writeExpense(t,"p"+Date.now().toString(36),{desc:"Settle-up",amount:+amt,paidBy:from,split:[to],date:todayISO(),kind:"payment",by:myEmail()||"",at:nowISO()},`recorded ${nameOf(t,from)} paying ${nameOf(t,to)} ${fmtMoney(+amt,t.currency)}`); render(); toast("Payment recorded"); return true; }
   if(el.hasAttribute("data-split-all")){ const boxes=[...document.querySelectorAll('input[name="exp-split"]')]; const all=boxes.every(b=>b.checked); boxes.forEach(b=>b.checked=!all); expEachText(); return true; }
@@ -1659,7 +1693,7 @@ async function cloudClick(el){
   return false;
 }
 function cloudSubmit(f){
-  if(f.hasAttribute("data-auth-form")){ doAuth("in"); return true; }
+  if(f.hasAttribute("data-auth-form")){ doAuth(S.authMode==="up"?"up":"in"); return true; }
   if(f.hasAttribute("data-people-form")){ savePeople(f); return true; }
   if(f.hasAttribute("data-exp-form")){ saveExpense(); return true; }
   return false;
