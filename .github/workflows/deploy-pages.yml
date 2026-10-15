@@ -23,8 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - id: site
+        name: Find the app folder
+        run: |
+          f=$(find . -name index.html -not -path "./.git/*" | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-)
+          if [ -z "$f" ]; then echo "No index.html found. Upload the app files."; exit 1; fi
+          dir=$(dirname "$f")
+          echo "Publishing $dir"; ls "$dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: app
+          path: ${{ steps.site.outputs.dir }}
       - id: deployment
         uses: actions/deploy-pages@v4
