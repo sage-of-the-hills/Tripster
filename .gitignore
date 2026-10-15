@@ -1,0 +1,9 @@
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+__pycache__/
+.env
+# personal trip files: keep them out of the public repo
+*.trip.json
+!examples/*.trip.json
