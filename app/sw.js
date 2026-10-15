@@ -1,7 +1,7 @@
 /* Tripster service worker: keeps the app working offline and, where the
    browser allows, re-checks forecasts in the background for weather alerts.
    Raise VERSION whenever any file changes so phones pick up the update. */
-const VERSION = "2.4.0";
+const VERSION = "2.5.0";
 const CACHE = "tripster-" + VERSION;
 const SHELL = [
   "./",
@@ -42,7 +42,13 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return; // weather and search go straight to the network
+  if (req.method !== "GET") return;
+  // Firebase's code (sign-in and shared trips) is kept so shared trips open offline
+  if (req.url.startsWith("https://www.gstatic.com/firebasejs/")) {
+    e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })));
+    return;
+  }
+  if (new URL(req.url).origin !== location.origin) return; // weather, search and Firebase data go straight to the network
   const url = new URL(req.url);
   const fresh = req.mode === "navigate" || url.pathname.endsWith(".json");
   if (fresh) {

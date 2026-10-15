@@ -1,3 +1,9 @@
 {
-  "relay": ""
+  "relay": "",
+  "firebase": {
+    "apiKey": "",
+    "authDomain": "",
+    "projectId": "",
+    "appId": ""
+  }
 }

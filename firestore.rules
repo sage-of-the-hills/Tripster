@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// Tripster shared trips.
+// A trip is readable and writable only by the email addresses listed in its "members".
+// Accounts must have a verified email, so nobody can join a trip by typing someone else's address.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    function me() { return request.auth.token.email.lower(); }
+    function tripDoc(tripId) { return get(/databases/$(database)/documents/trips/$(tripId)); }
+    function isMember(tripId) { return signedIn() && me() in tripDoc(tripId).data.members; }
+
+    match /trips/{tripId} {
+      allow read: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn()
+        && me() in request.resource.data.members
+        && request.resource.data.owner == me()
+        && request.resource.data.members.size() <= 30;
+      // Any member can edit the plan; only the owner can change who is on the trip or hand it over.
+      allow update: if signedIn() && me() in resource.data.members
+        && request.resource.data.owner == resource.data.owner
+        && (me() == resource.data.owner || request.resource.data.members == resource.data.members)
+        && request.resource.data.members.size() <= 30;
+      allow delete: if signedIn() && me() == resource.data.owner;
+
+      // Booking ticks, expenses and the change log
+      match /status/{key} {
+        allow read: if isMember(tripId);
+        allow write: if isMember(tripId) && request.resource.data.by == me();
+      }
+      match /expenses/{expenseId} {
+        allow read: if isMember(tripId);
+        allow create, update: if isMember(tripId) && request.resource.data.by == me()
+          && request.resource.data.amount is int && request.resource.data.amount > 0
+          && request.resource.data.amount < 100000000;
+        allow delete: if isMember(tripId);
+      }
+      match /activity/{entryId} {
+        allow read: if isMember(tripId);
+        allow create: if isMember(tripId) && request.resource.data.by == me();
+      }
+    }
+  }
+}

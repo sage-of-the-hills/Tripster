@@ -19,10 +19,12 @@ Live app: **https://sage-of-the-hills.github.io/tripster/** (after the first dep
 | **Live conditions** | Official weather warnings (MeteoAlarm, about 38 European countries), Safe Travel alerts and road conditions (Iceland), and a northern-lights outlook for each night. |
 | **Explore** | Add any place by search. Every place links to Tripadvisor, Google Maps, Wikivoyage, Lonely Planet, Atlas Obscura, GetYourGuide and Viator, plus nearby sights from Wikipedia. *Discover* adds highlights, off-beat places and road trips. |
 | **Bookings** | Every booking, stay, flight and car hire with a To book / Booked / Paid switch, plus a packing checklist. |
+| **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. |
+| **Money** | A simple Splitwise: add who paid and who it was for, see each person's share, balances and the fewest payments to settle up. Download as a spreadsheet. |
 | **Offline** | The whole app and your trips work with no signal. Instructions and links for Google Maps offline areas. |
 | **Sharing** | *Share trip link* packs the whole trip, ticks included, into a link that adds it to a friend's Tripster. Trip files can also be shared or backed up. |
 
-No accounts, no server, no tracking: trips and ticks live only on the device. The app only goes online to fetch weather, search places and read the public travel sources below.
+Without accounts, trips and ticks live only on the device. Shared trips (optional) use a free Firebase project you control: see [`docs/shared-trips.md`](docs/shared-trips.md). The app otherwise only goes online to fetch weather, search places and read the public travel sources below.
 
 ## Deploy it (GitHub Pages, free)
 
@@ -35,6 +37,10 @@ No accounts, no server, no tracking: trips and ticks live only on the device. Th
    - **Computer (Chrome, Edge, Brave):** the install icon in the address bar
 
 To ship a change: edit files under `app/`, raise `VERSION` at the top of `app/sw.js` (e.g. `2.4.0` → `2.4.1`) so installed copies update, and push.
+
+### Optional: shared trips and expenses
+
+To let everyone on a trip see the same bookings, ticks and expenses, set up a free Firebase project (about 10 minutes) and paste its settings into `app/config.json`. Step-by-step guide: [`docs/shared-trips.md`](docs/shared-trips.md). The security rules are in [`firestore.rules`](firestore.rules).
 
 ### Optional: official warnings and road conditions
 
@@ -63,6 +69,7 @@ app/                    the web app (deployed as-is, no build step)
   fonts/ icons/ maps/   self-hosted fonts, app icons, the Iceland base map
   trips/index.json      trips bundled with the app (empty by default)
 relay/cloudflare-worker.js   optional data relay
+firestore.rules         security rules for shared trips (Firebase)
 docs/                   trip file format, data relay setup, AI prompt
 examples/               example trip file
 tools/                  helper scripts (regenerate the country list)
@@ -84,6 +91,7 @@ Run it locally with any static server, for example `cd app && python3 -m http.se
 | [Safetravel.is](https://safetravel.is) (ICE-SAR) | Iceland travel alerts | Public alerts, linked to source |
 | [MeteoAlarm](https://meteoalarm.org) | Official weather warnings (via relay) | Public warnings, linked to source |
 | [Vegagerðin](https://umferdin.is) | Iceland road conditions (via relay) | Open data, linked to source |
+| [Firebase](https://firebase.google.com) | Sign-in and shared trips (optional, your own project) | Google Firebase terms |
 
 Tripadvisor has no open data feed, so places link out to it rather than showing its content.
 
