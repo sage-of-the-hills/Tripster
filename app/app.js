@@ -150,6 +150,7 @@ const LOGO='<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height=
 function netPill(){ return `<span class="netpill ${navigator.onLine?"on":""}" title="${navigator.onLine?"Online":"Offline: trips, maps and saved forecasts still work"}"><i></i>${navigator.onLine?"Online":"Offline"}</span>`; }
 function renderHeader(){
   const top=$("#top"), t=trip();
+  if(S.screen==="story"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>Tripster</span></button>${netPill()}</div>`; return; }
   if(S.screen==="record"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
   if(S.screen==="builder"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div><h1>Plan a trip</h1><div class="trip-meta"><span>Choose a country, your style and, if you like, a famous road trip.</span></div>`; return; }
   if(S.screen==="home"||!t){ top.innerHTML=`<div class="brandbar"><span class="brand">${LOGO}<span>Tripster</span></span>${netPill()}</div>`; return; }
@@ -175,6 +176,7 @@ function renderNow(){
   const t=trip(), v=$("#view"), tabs=$("#tabs");
   if(S.screen==="builder"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewBuilder(); return; }
   if(S.screen==="record"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewRecord(); return; }
+  if(S.screen==="story"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewStory(); return; }
   if(S.screen==="home"||!t){ S.screen="home"; tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewHome(); return; }
   tabs.hidden=false; document.body.classList.remove("home"); renderTabs();
   const views={overview:viewOverview,days:viewDays,weather:viewWeather,explore:viewExplore,bookings:viewBookings,money:viewMoney,offline:viewOffline};
@@ -231,9 +233,11 @@ function viewOverview(t){
   ${(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).length?`<div class="row" style="margin-top:14px">${t.links.filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).map(l=>`<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
   ${guideBlock(t)}
   <div class="section-head"><h2>Share and offline</h2></div>
-  <p class="small" style="margin:0 0 8px">Send fellow travellers a link that adds this trip, with your ticks, to their own Tripster. The trip travels inside the link, so anyone you send it to can open it.</p>
-  <div class="row"><button class="btn primary" data-share-link>Share trip link</button><button class="btn" data-save="json">Share trip file</button><button class="btn" data-save="html">One-page copy</button><button class="btn" data-go="offline">Offline maps</button>
-   ${sourceOf(t.id)==="bundle"||isShared(t)?"":`<button class="btn" data-remove-trip="${esc(t.id)}">${S.confirm==="trip:"+t.id?"Tap again to remove":"Remove from this device"}</button>`}</div>`;
+  <p class="small" style="margin:0 0 8px"><strong>Share trip story</strong> sends a link showing what you did and where you went: the days, the places and a map. Nothing else goes in it: no bookings, addresses, references, costs, expenses or people. To plan together, add people with their emails instead (People, above).</p>
+  <div class="row"><button class="btn primary" data-share-link>Share trip story</button><button class="btn" data-go="offline">Offline maps</button></div>
+  <details style="margin-top:10px"><summary class="small" style="cursor:pointer;font-weight:700">Full copies (everything, including bookings and addresses)</summary>
+  <div class="row" style="margin-top:8px"><button class="btn" data-save="json">Export full trip file</button><button class="btn" data-save="html">Full one-page copy</button></div></details>
+   ${sourceOf(t.id)==="bundle"||isShared(t)?"":`<div class="row" style="margin-top:10px"><button class="btn" data-remove-trip="${esc(t.id)}">${S.confirm==="trip:"+t.id?"Tap again to remove":"Remove from this device"}</button></div>`}`;
 }
 
 function viewDays(t){
@@ -343,9 +347,9 @@ function viewOffline(t){
    <div class="card"><h2 style="margin-bottom:6px">This app without signal</h2>
     <p style="margin-top:0">${S.swReady?"This app is saved on this device. Trips, day maps, timelines and bookings all open with no connection. Only the Google Maps links need signal or offline areas.":"Open the app once with a connection and it saves itself for offline use. Then trips, maps and bookings open with no signal."}</p>
     ${installCard()}
-    <h3 style="margin:16px 0 6px">Share with fellow travellers</h3>
-    <p style="margin-top:0" class="small">Send the trip file so they can load it in their own copy of the app, or send the single-page copy to anyone.</p>
-    <div class="row"><button class="btn primary" data-save="json">Share trip file</button><button class="btn" data-save="html">Share one-page copy</button></div>
+    <h3 style="margin:16px 0 6px">Full copies</h3>
+    <p style="margin-top:0" class="small">For yourself or someone you fully trust: these include bookings, addresses and references. To show friends where you went, use Share trip story on the Overview instead.</p>
+    <div class="row"><button class="btn" data-save="json">Export full trip file</button><button class="btn" data-save="html">Full one-page copy</button></div>
    </div></div>`;
 }
 
@@ -822,6 +826,7 @@ function viewHome(){
       ${!name&&!CLOUD.user&&!S.renaming?`<form class="namebox" data-name-form><label for="name-in">${name?"Change your name":"What should we call you?"}</label><div class="row"><input id="name-in" autocomplete="given-name" placeholder="Your first name" value="${esc(name)}"><button class="btn sun">Save</button></div></form>`:""}
     </div></section>
     ${tripSections(ids,upcoming,past,all)}
+    ${stories().length?`<div class="section-head"><h2>Trip stories from friends</h2></div><div class="grid tripgrid">${stories().map((st,i)=>`<button class="card tripcard past" data-story="${i}"><span class="eyebrow">Trip story${st.by?` from ${esc(st.by)}`:""}</span><h3 style="margin:2px 0">${esc(st.title)}</h3><span class="small mono muted">${esc(fmtDay(st.start,true))} – ${esc(fmtDay(st.end,true))} ${pd(st.end)?pd(st.end).y:""}</span><span class="tc-stats small"><span>${st.days.length} days</span><span>${st.days.reduce((a,d)=>a+d.p.length,0)} places</span></span></button>`).join("")}</div>`:""}
     <div class="section-head" id="plan"><h2>Plan a new trip</h2><span class="small muted">Three ways to start</span></div>
     ${planBlock()}
     <footer class="homefoot">
@@ -901,16 +906,53 @@ async function unpackTrip(str){
   if(z==="1"){ const st=new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")); return await new Response(st).text(); }
   return new TextDecoder().decode(bytes);
 }
+// A trip story: only the days and the places visited. Stays, bookings, addresses, references,
+// costs, expenses, notes and people are never put in the link.
+function storyOf(t){
+  const days=(t.days||[]).map(d=>{ const seen=new Set(), places=[];
+    (d.steps||[]).forEach(st=>{ const p=t.places[st.place]; if(!p||p.waypoint||isStay(t,st.place)||seen.has(st.place)) return; seen.add(st.place);
+      places.push({n:String(p.name).slice(0,60),la:Math.round(p.lat*1000)/1000,lo:Math.round(p.lon*1000)/1000}); });
+    return {d:d.date,t:String(d.title||"").slice(0,80),c:d.color||"",p:places}; }).filter(d=>d.p.length||d.t);
+  const bm=t.basemap&&/^maps\/[\w-]+\.(jpg|png|webp)$/.test(t.basemap.src||"")?t.basemap:null; // only maps that ship with the app
+  return {format:"tripster-story/1",title:t.title,start:t.start,end:t.end,region:t.region||"",by:S.userName||"",days,...(bm?{bm}:{})};
+}
 async function shareLink(){
   const t=trip(); if(!t) return;
-  const url=location.origin+location.pathname+"#trip="+(await packTrip(withTicks(t)));
-  const text=`${t.title} in Tripster. Open this link to add the trip to your app.`;
+  const url=location.origin+location.pathname+"#story="+(await packTrip(storyOf(t)));
+  const text=`${t.title}: where we went, day by day.`;
   const touch=matchMedia("(pointer:coarse)").matches;
   if(touch&&navigator.share){ try{ await navigator.share({title:t.title,text,url}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); toast("Trip link copied. Paste it into a message."); }
-  catch(e){ toast("Couldn't copy the link here. Use Share trip file instead."); }
+  try{ await navigator.clipboard.writeText(url); toast("Trip story link copied. Paste it into a message."); }
+  catch(e){ toast("Couldn't copy the link here."); }
+}
+function storyAsTrip(st){ // turn a story into the shape the map drawing expects
+  const places={}, days=[]; let last=null;
+  st.days.forEach((d,i)=>{ const keys=d.p.map((p,j)=>{ const k="S"+i+"_"+j; places[k]={name:p.n,lat:p.la,lon:p.lo}; return k; });
+    days.push({date:d.d,title:d.t,color:d.c||"#0B5F73",route:last&&keys.length?[last,...keys]:keys,steps:keys.map(k=>({place:k,title:places[k].name}))});
+    if(keys.length) last=keys[keys.length-1]; });
+  const bm=st.bm&&/^maps\/[\w-]+\.(jpg|png|webp)$/.test(st.bm.src||"")&&st.bm.bounds?st.bm:null;
+  return {id:"story",title:st.title,start:st.start,end:st.end,places,days,stays:[],bookings:[],transport:[],...(bm?{basemap:bm}:{})};
+}
+function validStory(o){ return o&&o.format==="tripster-story/1"&&typeof o.title==="string"&&Array.isArray(o.days)&&o.days.every(d=>Array.isArray(d.p)&&d.p.every(p=>isFinite(p.la)&&isFinite(p.lo))); }
+function stories(){ return loadJSON("ts.stories")||[]; }
+function viewStory(){
+  const st=S.story; if(!st) return `<div class="empty">This story isn't available.</div>`;
+  const kept=stories().some(x=>x.title===st.title&&x.start===st.start);
+  const T=storyAsTrip(st); const n=st.days.reduce((a,d)=>a+d.p.length,0);
+  return `<div class="card"><div class="eyebrow">Trip story${st.by?` from ${esc(st.by)}`:""}</div><h2 style="margin:4px 0">${esc(st.title)}</h2>
+     <p class="small mono muted" style="margin:0">${esc(fmtDay(st.start,true))} – ${esc(fmtDay(st.end,true))} ${pd(st.end)?pd(st.end).y:""}${st.region?" · "+esc(st.region):""} · ${st.days.length} days · ${n} places</p></div>
+   ${n>1?`<div class="mapbox" style="margin-top:14px">${mapSVG(T,null,700)}</div>`:""}
+   <div class="section-head"><h2>Day by day</h2></div>
+   <div class="grid cols-2">${st.days.map(d=>`<div class="card" style="border-top:5px solid ${esc(d.c||"var(--accent)")}"><div class="eyebrow">${esc(fmtDay(d.d,true))}</div><h3 style="margin:2px 0 8px">${esc(d.t)}</h3>
+     ${d.p.length?`<div class="chips">${d.p.map(p=>`<a class="chip" href="https://www.google.com/maps/search/?api=1&query=${p.la}%2C${p.lo}" target="_blank" rel="noopener">${esc(p.n)}</a>`).join("")}</div>`:`<p class="small muted" style="margin:0">A free day.</p>`}</div>`).join("")}</div>
+   <div class="row" style="margin-top:14px">${kept?`<button class="btn" data-story-forget>Remove from my stories</button>`:`<button class="btn primary" data-story-keep>Keep in my trip stories</button>`}</div>
+   <p class="small muted">A trip story shows only the days and places. Bookings, stays, costs and people aren't included.</p>`;
 }
 async function readIncoming(){
+  const sm=(location.hash||"").match(/^#story=([A-Za-z0-9_-]+)/);
+  if(sm){ try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+    try{ const o=JSON.parse(await unpackTrip(sm[1])); if(!validStory(o)) throw 0; S.story=o; S.screen="story"; }catch(e){ S.incoming={error:true}; S.screen="home"; }
+    render(); window.scrollTo({top:0}); return; }
   const m=(location.hash||"").match(/^#trip=([A-Za-z0-9_-]+)/); if(!m) return;
   try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
   try{ const text=await unpackTrip(m[1]); const obj=JSON.parse(text); if(validate(obj)) throw 0; S.incoming={text,obj}; }
@@ -1755,6 +1797,9 @@ async function cloudClick(el){
   if(el.hasAttribute("data-people-cancel")){ S.peopleEdit=false; render(); return true; }
   if(el.hasAttribute("data-people-add")){ const f=el.closest("form"); const n=+f.count.value; const row=document.createElement("div"); row.className="two prow"; row.innerHTML=`<input name="pn${n}" placeholder="Name" aria-label="Name ${n+1}"><input name="pe${n}" type="email" placeholder="Email (optional)" aria-label="Email ${n+1}">`; f.count.value=n+1; f.insertBefore(row,f.count); row.querySelector("input").focus(); return true; }
   if(el.hasAttribute("data-share-group")){ shareGroup(); return true; }
+  if(el.hasAttribute("data-story-keep")&&S.story){ const a=stories().filter(x=>!(x.title===S.story.title&&x.start===S.story.start)); a.unshift(S.story); saveJSON("ts.stories",a.slice(0,50)); render(); toast("Kept in your trip stories"); return true; }
+  if(el.hasAttribute("data-story-forget")&&S.story){ saveJSON("ts.stories",stories().filter(x=>!(x.title===S.story.title&&x.start===S.story.start))); render(); toast("Removed"); return true; }
+  if(el.dataset.story!==undefined){ const st=stories()[+el.dataset.story]; if(st){ S.story=st; S.screen="story"; render(); window.scrollTo({top:0}); } return true; }
   if(el.dataset.record){ S.recordId=el.dataset.record; S.screen="record"; render(); window.scrollTo({top:0}); return true; }
   if(el.dataset.expEdit){ S.expEdit=el.dataset.expEdit; render(); const f=document.querySelector("[data-exp-form]"); if(f) f.scrollIntoView({block:"start",behavior:"smooth"}); setTimeout(expEachText,0); return true; }
   if(el.hasAttribute("data-exp-cancel")){ S.expEdit=null; const fm=document.querySelector("[data-exp-form]"); if(fm) fm.reset(); render(); return true; }
