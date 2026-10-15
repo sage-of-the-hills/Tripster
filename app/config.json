@@ -1,9 +1,9 @@
 {
   "relay": "",
   "firebase": {
-    "apiKey": "",
-    "authDomain": "",
-    "projectId": "",
-    "appId": ""
+    "apiKey": "AIzaSyDURJK_4ChV6EXapgwkVM4gJew4K8UI02w",
+    "authDomain": "tripster-3a480.firebaseapp.com",
+    "projectId": "tripster-3a480",
+    "appId": "1:312806064401:web:6faa828878e283f3f0ccb0"
   }
 }
