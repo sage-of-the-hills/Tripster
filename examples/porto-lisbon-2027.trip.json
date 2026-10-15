@@ -1,0 +1,140 @@
+{
+  "format": "trip-planner/1",
+  "id": "porto-lisbon-2027",
+  "title": "Porto and Lisbon",
+  "tagline": "Five days of food, tiles and viewpoints.",
+  "region": "Portugal",
+  "start": "2027-05-01",
+  "end": "2027-05-05",
+  "travellers": [
+    "Sam",
+    "Alex"
+  ],
+  "currency": "GBP",
+  "daylight": {
+    "sunrise": "06:35",
+    "sunset": "20:40"
+  },
+  "places": {
+    "OPO": {
+      "name": "Porto airport",
+      "lat": 41.2481,
+      "lon": -8.6814
+    },
+    "HOTEL": {
+      "name": "Hotel in Ribeira",
+      "lat": 41.1407,
+      "lon": -8.613
+    },
+    "LIVRARIA": {
+      "name": "Livraria Lello",
+      "lat": 41.1469,
+      "lon": -8.6149
+    },
+    "COIMBRA": {
+      "name": "Coimbra",
+      "lat": 40.2033,
+      "lon": -8.4103,
+      "waypoint": true
+    }
+  },
+  "stays": [
+    {
+      "id": "porto-hotel",
+      "name": "Hotel in Ribeira",
+      "address": "Street, Porto",
+      "place": "HOTEL",
+      "checkIn": "2027-05-01T15:00",
+      "checkOut": "2027-05-03T11:00",
+      "host": "",
+      "via": "Booking.com",
+      "ref": "",
+      "cost": 420,
+      "cancellation": "Free until 28 Apr",
+      "status": "booked",
+      "notes": ""
+    }
+  ],
+  "transport": [
+    {
+      "id": "flight-out",
+      "kind": "flight",
+      "title": "London to Porto",
+      "at": "2027-05-01T09:00",
+      "ref": "",
+      "status": "booked"
+    },
+    {
+      "id": "car",
+      "kind": "car",
+      "title": "Hire car",
+      "provider": "",
+      "at": "2027-05-03T10:00",
+      "until": "2027-05-05T10:00",
+      "pickup": "HOTEL",
+      "dropoff": "OPO",
+      "status": "todo"
+    }
+  ],
+  "bookings": [
+    {
+      "id": "lello",
+      "title": "Livraria Lello tickets",
+      "provider": "Livraria Lello",
+      "date": "2027-05-02",
+      "time": "10:00",
+      "people": 2,
+      "url": "https://www.livrarialello.pt",
+      "bookBy": "2027-04-20",
+      "cost": "€10 each",
+      "status": "todo",
+      "notes": ""
+    }
+  ],
+  "days": [
+    {
+      "date": "2027-05-02",
+      "title": "Old Porto",
+      "color": "#0B5F73",
+      "stay": "porto-hotel",
+      "route": [
+        "HOTEL",
+        "LIVRARIA"
+      ],
+      "steps": [
+        {
+          "time": "09:30",
+          "title": "Hotel",
+          "place": "HOTEL",
+          "next": "Walk 15 min"
+        },
+        {
+          "time": "10:00",
+          "title": "Livraria Lello",
+          "place": "LIVRARIA",
+          "booking": "lello",
+          "note": "Arrive 10 minutes early"
+        }
+      ]
+    }
+  ],
+  "checklist": [
+    {
+      "id": "passport",
+      "title": "Passports",
+      "group": "Documents"
+    }
+  ],
+  "notes": [
+    {
+      "title": "Emergency",
+      "body": "Call 112."
+    }
+  ],
+  "links": [
+    {
+      "title": "Weather",
+      "url": "https://www.ipma.pt/en/"
+    }
+  ]
+}
