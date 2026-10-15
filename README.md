@@ -19,7 +19,7 @@ Live app: **https://sage-of-the-hills.github.io/tripster/** (after the first dep
 | **Live conditions** | Official weather warnings (MeteoAlarm, about 38 European countries), Safe Travel alerts and road conditions (Iceland), and a northern-lights outlook for each night. |
 | **Explore** | Add any place by search. Every place links to Tripadvisor, Google Maps, Wikivoyage, Lonely Planet, Atlas Obscura, GetYourGuide and Viator, plus nearby sights from Wikipedia. *Discover* adds highlights, off-beat places and road trips. |
 | **Bookings** | Every booking, stay, flight and car hire with a To book / Booked / Paid switch, plus a packing checklist. |
-| **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. |
+| **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. Home shows *Trips you planned* and *Trips you were part of*: after a trip ends, only the planner keeps the full details; everyone else keeps a record (dates, places, people, final balances). |
 | **Money** | A simple Splitwise: add who paid and who it was for, see each person's share, balances and the fewest payments to settle up. Download as a spreadsheet. |
 | **Offline** | The whole app and your trips work with no signal. Instructions and links for Google Maps offline areas. |
 | **Sharing** | *Share trip link* packs the whole trip, ticks included, into a link that adds it to a friend's Tripster. Trip files can also be shared or backed up. |

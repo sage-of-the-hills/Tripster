@@ -52,7 +52,22 @@ These values are safe to publish: they only identify the project. Access is cont
 2. Open the trip → **Overview → People → Edit**: add everyone's name and email (people without email, like children, can still be in expenses) → **Save people** → **Share with the group**.
 3. Send everyone the app link. Each person creates an account **with the same email you entered**, confirms it, and the trip appears on their home screen.
 
+## Trips you planned, trips you were part of
+
+Everyone has their own account, but a trip belongs to the person who planned (shared) it.
+
+- **Trips you planned:** you always keep the full trip: plan, bookings, ticks, expenses and change history.
+- **Trips you were part of:** while the trip is upcoming or happening (until 2 days after its last day), you see everything live and can tick bookings, change the plan and add expenses. After that it becomes a **record**: title, dates, places, who planned it, who went and everyone's final balance. The full details stay with the planner, and Tripster deletes its full copy from your phone.
+
+This is enforced by the database rules, not just hidden in the app: once a trip is over, Firebase refuses the full trip to anyone except the planner.
+
+So if Aakash plans Iceland, it's under *Trips you planned* for him and *Trips you were part of* for Deeksha and Anam. If Anam plans the next trip, that one is hers, and she only ever keeps the record of Iceland.
+
 Who can do what:
-- Everyone on the trip can tick bookings, change the plan, and add, edit or delete expenses.
-- Only the person who shared the trip (the owner) can add or remove people.
+- Everyone on an open trip can tick bookings, change the plan, and add, edit or delete expenses.
+- Only the planner can add or remove people.
 - Packing-list ticks stay personal to each phone.
+
+## Updating the rules
+
+When `firestore.rules` changes in this project, paste the new version into Firebase (**Firestore → Rules → Publish**) as in step 3. The app and the rules must match.

@@ -150,6 +150,7 @@ const LOGO='<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height=
 function netPill(){ return `<span class="netpill ${navigator.onLine?"on":""}" title="${navigator.onLine?"Online":"Offline: trips, maps and saved forecasts still work"}"><i></i>${navigator.onLine?"Online":"Offline"}</span>`; }
 function renderHeader(){
   const top=$("#top"), t=trip();
+  if(S.screen==="record"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
   if(S.screen==="builder"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div><h1>Plan a trip</h1><div class="trip-meta"><span>Choose a country, your style and, if you like, a famous road trip.</span></div>`; return; }
   if(S.screen==="home"||!t){ top.innerHTML=`<div class="brandbar"><span class="brand">${LOGO}<span>Tripster</span></span>${netPill()}</div>`; return; }
   const n=nights(t.start,t.end);
@@ -173,6 +174,7 @@ function renderNow(){
   renderHeader();
   const t=trip(), v=$("#view"), tabs=$("#tabs");
   if(S.screen==="builder"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewBuilder(); return; }
+  if(S.screen==="record"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewRecord(); return; }
   if(S.screen==="home"||!t){ S.screen="home"; tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewHome(); return; }
   tabs.hidden=false; document.body.classList.remove("home"); renderTabs();
   const views={overview:viewOverview,days:viewDays,weather:viewWeather,explore:viewExplore,bookings:viewBookings,money:viewMoney,offline:viewOffline};
@@ -707,7 +709,7 @@ async function nearby(k){
 /* ---------- home ---------- */
 function greeting(){ const h=new Date().getHours(); return h<5?"Good evening":h<12?"Good morning":h<18?"Good afternoon":"Good evening"; }
 const HERO_ART=`<svg class="hero-art" viewBox="0 0 400 220" aria-hidden="true"><g fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1.5"><circle cx="320" cy="60" r="40"/><circle cx="320" cy="60" r="72"/><circle cx="320" cy="60" r="104"/><circle cx="320" cy="60" r="136"/><circle cx="320" cy="60" r="168"/></g><g class="route"><path d="M40 200 C 110 140, 150 210, 215 150 S 290 90, 320 72" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="3" stroke-dasharray="1 10" stroke-linecap="round"/><circle cx="40" cy="200" r="6" fill="#fff"/><circle cx="215" cy="150" r="4" fill="#fff" opacity=".8"/></g><path d="M320 30a18 18 0 0 1 18 18c0 14-18 32-18 32s-18-18-18-32a18 18 0 0 1 18-18z" fill="#F2B200"/><circle cx="320" cy="48" r="6.5" fill="#0B5F73"/></svg>`;
-function tripCard(x,past){
+function tripCard(x,past,by){
   const dd=daysUntil(x.start), de=daysUntil(x.end);
   const todo=[...(x.bookings||[]).map(b=>statusFor(x,"booking",b)),...(x.transport||[]).map(b=>statusFor(x,"transport",b)),...(x.stays||[]).map(b=>statusFor(x,"stay",b))].filter(s=>s==="todo").length;
   const al=(S.alerts[x.id]||[]).length, places=Object.values(x.places||{}).filter(p=>!p.waypoint).length;
@@ -716,8 +718,43 @@ function tripCard(x,past){
     <span class="tc-top"><span class="eyebrow">${when}</span>${al?`<span class="pill s-alert">${al} weather alert${al>1?"s":""}</span>`:""}</span>
     <h3 style="margin:2px 0">${esc(x.title)}</h3>
     <span class="small mono muted">${esc(fmtDay(x.start,true))} – ${esc(fmtDay(x.end,true))} ${pd(x.end)?pd(x.end).y:""}</span>
-    <span class="tc-stats small"><span>${(x.days||[]).length} days</span><span>${places} places</span><span>${todo?`${todo} to book`:"All booked"}</span></span></button>`;
+    <span class="tc-stats small"><span>${(x.days||[]).length} days</span><span>${places} places</span><span>${todo?`${todo} to book`:"All booked"}</span>${by?`<span>Planned by ${esc(by)}</span>`:""}</span></button>`;
 }
+function tripSections(ids,upcoming,past,all){
+  const me=myEmail(); const order=[...upcoming,...past];
+  if(!me||!Object.keys(S.index).length){
+    return `<div class="section-head"><h2>Your trips</h2>${ids.length?`<span class="small muted">Saved on this device</span>`:""}</div>
+    ${ids.length? `<div class="grid tripgrid">${[...upcoming.map(id=>tripCard(all[id],false)),...past.map(id=>tripCard(all[id],true))].join("")}</div>` : `<div class="empty">${S.loaded?"No trips yet. Plan one below.":"Loading…"}</div>`}`;
+  }
+  const isPast=id=>(all[id]&&(all[id].end||"")<todayISO());
+  const planned=order.filter(id=>!S.index[id]||S.index[id].owner===me);
+  const partFull=order.filter(id=>S.index[id]&&S.index[id].owner!==me);
+  const records=Object.keys(S.index).filter(id=>S.index[id].owner!==me&&!fullAccess(id)).sort((a,b)=>(S.index[b].summary.start||"").localeCompare(S.index[a].summary.start||""));
+  return `<div class="section-head"><h2>Trips you planned</h2></div>
+    ${planned.length?`<div class="grid tripgrid">${planned.map(id=>tripCard(all[id],isPast(id))).join("")}</div>`:`<div class="empty">${S.loaded?"None yet. Plan one below.":"Loading…"}</div>`}
+    ${partFull.length||records.length?`<div class="section-head"><h2>Trips you were part of</h2><span class="small muted">Full details until a trip ends, then a record</span></div>
+    <div class="grid tripgrid">${partFull.map(id=>tripCard(all[id],isPast(id),plannerName(S.index[id]))).join("")}${records.map(id=>recordCard(id,S.index[id])).join("")}</div>`:""}`;
+}
+function myBalanceLine(x){ const me=myEmail(); const b=x.balances&&x.balances[me]; if(b==null) return ""; return b>0?`You were owed ${fmtMoney(b,x.currency)}`:b<0?`You owed ${fmtMoney(-b,x.currency)}`:"You were settled up"; }
+function plannerName(x){ const p=(x.summary.people||[]).find(q=>q.email===x.owner); return p? p.name : x.owner.split("@")[0]; }
+function recordCard(id,x){ const s=x.summary||{};
+  return `<button class="card tripcard past" data-record="${esc(id)}">
+    <span class="tc-top"><span class="eyebrow">Trip record</span></span>
+    <h3 style="margin:2px 0">${esc(s.title||"Trip")}</h3>
+    <span class="small mono muted">${esc(fmtDay(s.start,true))} – ${esc(fmtDay(s.end,true))} ${pd(s.end)?pd(s.end).y:""}</span>
+    <span class="tc-stats small"><span>Planned by ${esc(plannerName(x))}</span><span>${(s.places||[]).length} places</span>${myBalanceLine(x)?`<span>${esc(myBalanceLine(x))}</span>`:""}</span></button>`; }
+function viewRecord(){
+  const id=S.recordId, x=S.index[id]; if(!x) return `<div class="empty">This record isn't available.</div>`;
+  const s=x.summary||{}, ps=s.people||[], cur=x.currency||"GBP"; const nm=k=>{ const p=ps.find(q=>q.email===k||("n:"+slug(q.name))===k); return p?p.name:(k||"").replace(/^n:/,"").split("@")[0]; };
+  return `<div class="card"><div class="eyebrow">Trip record</div><h2 style="margin:4px 0">${esc(s.title)}</h2>
+     <p class="small mono muted" style="margin:0">${esc(fmtDay(s.start,true))} – ${esc(fmtDay(s.end,true))} ${pd(s.end)?pd(s.end).y:""}${s.region?" · "+esc(s.region):""} · ${s.days||0} ${s.days===1?"day":"days"}</p>
+     <p style="margin:10px 0 0">Planned by <strong>${esc(plannerName(x))}</strong> · with ${esc(ps.filter(p=>p.email!==x.owner).map(p=>p.name).join(", ")||"no one else")}</p></div>
+   ${(s.places||[]).length?`<div class="section-head"><h2>Places</h2></div><div class="chips">${s.places.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>`:""}
+   ${x.balances?`<div class="section-head"><h2>Final balances</h2>${x.spent?`<span class="small muted">Trip spend ${fmtMoney(x.spent,cur)}</span>`:""}</div>
+     <div class="card"><table class="baltable"><tbody>${Object.entries(x.balances).map(([k,b])=>`<tr><td>${esc(nm(k))}${k===myEmail()?` <span class="small muted">(you)</span>`:""}</td><td class="mono" style="text-align:right;color:${b>0?"var(--ok)":b<0?"var(--bad)":"inherit"}">${b>0?"was owed ":b<0?"owed ":"settled"}${b?fmtMoney(Math.abs(b),cur):""}</td></tr>`).join("")}</tbody></table></div>`:""}
+   <p class="small muted" style="margin-top:14px">The full plan, bookings and expenses stay with ${esc(plannerName(x))}, who planned this trip. Everyone else keeps this record.</p>`;
+}
+
 const PROMPT=`Plan a trip for me and give me the result as a Tripster trip file.
 
 My trip:
@@ -784,8 +821,7 @@ function viewHome(){
       ${next?`<div class="row"><button class="btn sun" data-open="${esc(next.id)}">Open ${esc(next.title)}</button></div>`:S.loaded?`<div class="row"><button class="btn sun" data-scroll-plan>Plan your first trip</button></div>`:""}
       ${!name&&!CLOUD.user&&!S.renaming?`<form class="namebox" data-name-form><label for="name-in">${name?"Change your name":"What should we call you?"}</label><div class="row"><input id="name-in" autocomplete="given-name" placeholder="Your first name" value="${esc(name)}"><button class="btn sun">Save</button></div></form>`:""}
     </div></section>
-    <div class="section-head"><h2>Your trips</h2>${ids.length?`<span class="small muted">Saved on this device</span>`:""}</div>
-    ${ids.length? `<div class="grid tripgrid">${[...upcoming.map(id=>tripCard(all[id],false)),...past.map(id=>tripCard(all[id],true))].join("")}</div>` : `<div class="empty">${S.loaded?"No trips yet. Plan one below.":"Loading…"}</div>`}
+    ${tripSections(ids,upcoming,past,all)}
     <div class="section-head" id="plan"><h2>Plan a new trip</h2><span class="small muted">Three ways to start</span></div>
     ${planBlock()}
     <footer class="homefoot">
@@ -1396,7 +1432,7 @@ function guideBlock(t){
    Without Firebase settings in config.json the app works exactly as before, on this device only. */
 const FB_V="10.14.1";
 const CLOUD={ready:false,loading:false,auth:null,db:null,fs:null,am:null,user:null,err:"",subs:{},tripSub:null,tripSubId:null};
-S.shared={}; S.statusMeta={}; S.exp={}; S.activity={}; S.expEdit=null; S.peopleEdit=false; S.authMsg=""; S.authBusy=false;
+S.shared={}; S.index={}; S.statusMeta={}; S.exp={}; S.activity={}; S.expEdit=null; S.peopleEdit=false; S.authMsg=""; S.authBusy=false;
 
 function fbConfig(){ const f=S.cfg&&S.cfg.firebase; return f&&f.apiKey&&f.projectId? f : null; }
 function myEmail(){ return CLOUD.user&&CLOUD.user.email? CLOUD.user.email.toLowerCase() : ""; }
@@ -1426,19 +1462,46 @@ async function initCloud(){
 
 /* --- trips shared with me --- */
 function unsubAll(){ Object.values(CLOUD.subs).forEach(u=>{ try{u();}catch(e){} }); CLOUD.subs={}; if(CLOUD.tripSub){ CLOUD.tripSub(); CLOUD.tripSub=null; CLOUD.tripSubId=null; } }
+// Every shared trip has two parts in Firebase:
+//   tripIndex/{id}  a small record (title, dates, places, people, final balances) that everyone on the trip keeps
+//   trips/{id}      the full plan, ticks, expenses and change log: the planner always, everyone else only until the trip is over
+const OPEN_DAYS_AFTER=2;  // days after the last trip day that the group keeps full access
+function openUntilFor(t){ const p=pd(t.end)||pd(t.start); return p? Date.UTC(p.y,p.mo,p.d)+(OPEN_DAYS_AFTER+1)*864e5 : Date.now()+365*864e5; }
+function fullAccess(id){ const x=S.index[id]; return !!x&&(x.owner===myEmail()||Date.now()<x.openUntil); }
+function summaryOf(t){ return {title:t.title||"",start:t.start||"",end:t.end||"",region:t.region||"",days:(t.days||[]).length,
+  places:placeOrder(t).map(k=>t.places[k].name).slice(0,60), people:tripPeople(t)}; }
 function watchTrips(){
-  unsubAll(); S.shared={};
+  unsubAll(); S.shared={}; S.index={};
   if(!CLOUD.ready||!verified()) return;
   const {fs,db}=CLOUD;
-  CLOUD.subs.trips=fs.onSnapshot(fs.query(fs.collection(db,"trips"),fs.where("members","array-contains",myEmail())), snap=>{
+  CLOUD.subs.index=fs.onSnapshot(fs.query(fs.collection(db,"tripIndex"),fs.where("members","array-contains",myEmail())), snap=>{
     const seen=new Set();
-    snap.docs.forEach(d=>{ const x=d.data(); seen.add(d.id); S.shared[d.id]={owner:x.owner,members:x.members||[],updatedBy:x.updatedBy,updatedAt:x.updatedAt};
-      if(x.trip&&!validate(x.trip)){ keepLocal(x.trip); setSource(d.id,"shared"); }
-      if(!CLOUD.subs["st:"+d.id]) watchStatus(d.id); });
-    Object.keys(S.shared).forEach(id=>{ if(!seen.has(id)){ delete S.shared[id]; if(CLOUD.subs["st:"+id]){ CLOUD.subs["st:"+id](); delete CLOUD.subs["st:"+id]; } setSource(id,"upload"); } });
-    S.loaded=true; pickDefault(); render(); writeSwState();
+    snap.docs.forEach(d=>{ const x=d.data(); seen.add(d.id);
+      S.index[d.id]={owner:x.owner,members:x.members||[],summary:x.summary||{},openUntil:x.openUntil&&x.openUntil.toMillis?x.openUntil.toMillis():0,balances:x.balances||null,spent:x.spent||0,currency:x.currency||"GBP"}; });
+    Object.keys(S.index).forEach(id=>{ if(!seen.has(id)) delete S.index[id]; });
+    syncAccess(); S.loaded=true; pickDefault(); render(); writeSwState();
   }, e=>{ CLOUD.err="Couldn't load shared trips: "+(e.code||e.message); render(); });
 }
+function stopSubs(id){ ["doc:","st:"].forEach(p=>{ if(CLOUD.subs[p+id]){ try{ CLOUD.subs[p+id](); }catch(e){} delete CLOUD.subs[p+id]; } }); if(CLOUD.tripSubId===id&&CLOUD.tripSub){ CLOUD.tripSub(); CLOUD.tripSub=null; CLOUD.tripSubId=null; } }
+function purgeLocal(id){ // the trip is over and you weren't the planner: keep the record only
+  delete S.localTrips[id]; delete S.status[id]; delete S.exp[id]; delete S.statusMeta[id]; delete S.activity[id];
+  try{ const a=JSON.parse(store.get("tp.local")||"{}"); delete a[id]; store.set("tp.local",JSON.stringify(a)); ["tp.status.","ts.exp.","ts.wx.","ts.live.","ts.snap.","ts.chg."].forEach(k=>localStorage.removeItem(k+id)); }catch(e){}
+  if(S.tripId===id&&S.screen==="trip"){ S.screen="home"; S.tripId=null; }
+}
+function syncAccess(){
+  Object.keys(S.index).forEach(id=>{
+    if(fullAccess(id)){ const x=S.index[id]; S.shared[id]={owner:x.owner,members:x.members}; if(!CLOUD.subs["doc:"+id]) watchTripDoc(id); if(!CLOUD.subs["st:"+id]) watchStatus(id); }
+    else { delete S.shared[id]; stopSubs(id); if(S.localTrips[id]) purgeLocal(id); }
+  });
+  Object.keys(S.shared).forEach(id=>{ if(!S.index[id]){ delete S.shared[id]; stopSubs(id); if(sourceOf(id)==="shared") purgeLocal(id); } });
+}
+function watchTripDoc(id){
+  const {fs,db}=CLOUD;
+  CLOUD.subs["doc:"+id]=fs.onSnapshot(fs.doc(db,"trips",id), d=>{
+    const x=d.exists()? d.data() : null; if(x&&x.trip&&!validate(x.trip)){ keepLocal(x.trip); setSource(id,"shared"); if(S.tripId===id||S.screen==="home") render(); }
+  }, ()=>{ if(CLOUD.subs["doc:"+id]){ try{ CLOUD.subs["doc:"+id](); }catch(e){} delete CLOUD.subs["doc:"+id]; } setTimeout(()=>{ if(fullAccess(id)&&!CLOUD.subs["doc:"+id]) watchTripDoc(id); },2500); });
+}
+setInterval(()=>{ if(CLOUD.ready&&Object.keys(S.index).length){ syncAccess(); render(); } }, 10*60e3);
 function watchStatus(id){
   const {fs,db}=CLOUD;
   CLOUD.subs["st:"+id]=fs.onSnapshot(fs.collection(db,"trips",id,"status"), snap=>{
@@ -1448,7 +1511,7 @@ function watchStatus(id){
     if(S.tripId===id||S.screen==="home") render();
   }, ()=>{ // refused, usually because the trip was shared a moment ago and the server hasn't caught up: retry
     if(CLOUD.subs["st:"+id]){ try{ CLOUD.subs["st:"+id](); }catch(e){} delete CLOUD.subs["st:"+id]; }
-    setTimeout(()=>{ if(S.shared[id]&&!CLOUD.subs["st:"+id]) watchStatus(id); },2500);
+    setTimeout(()=>{ if(fullAccess(id)&&!CLOUD.subs["st:"+id]) watchStatus(id); },2500);
   });
 }
 // expenses and the change log of the trip that's open
@@ -1458,7 +1521,7 @@ function ensureTripSub(t){
   if(CLOUD.tripSub) CLOUD.tripSub();
   const {fs,db}=CLOUD; const id=t.id;
   const retry=()=>{ if(CLOUD.tripSubId!==id) return; if(CLOUD.tripSub) CLOUD.tripSub(); CLOUD.tripSub=null; CLOUD.tripSubId=null; setTimeout(()=>{ const t2=trip(); if(t2&&t2.id===id) ensureTripSub(t2); },2500); };
-  const u1=fs.onSnapshot(fs.collection(db,"trips",id,"expenses"), snap=>{ S.exp[id]=snap.docs.map(d=>Object.assign({id:d.id},d.data())); saveJSON("ts.exp."+id,S.exp[id]); if(S.tripId===id) render(); }, retry);
+  const u1=fs.onSnapshot(fs.collection(db,"trips",id,"expenses"), snap=>{ S.exp[id]=snap.docs.map(d=>Object.assign({id:d.id},d.data())); saveJSON("ts.exp."+id,S.exp[id]); recordBalances(id); if(S.tripId===id) render(); }, retry);
   const u2=fs.onSnapshot(fs.query(fs.collection(db,"trips",id,"activity"),fs.orderBy("at","desc"),fs.limit(30)), snap=>{ S.activity[id]=snap.docs.map(d=>d.data()); if(S.tripId===id&&S.tab==="overview") render(); }, retry);
   CLOUD.tripSub=()=>{ u1(); u2(); }; CLOUD.tripSubId=id;
 }
@@ -1467,11 +1530,17 @@ function logActivity(t,text){
   fs.addDoc(fs.collection(db,"trips",t.id,"activity"),{by:myEmail(),at:nowISO(),text}).catch(()=>{});
 }
 function cloudSaveTrip(t,note){
-  if(!isShared(t)||!CLOUD.ready) return; const {fs,db}=CLOUD; const sh=S.shared[t.id];
-  const upd={trip:cleanForCloud(t),updatedBy:myEmail(),updatedAt:nowISO()};
-  if(sh&&sh.owner===myEmail()) upd.members=membersOf(t);
-  fs.updateDoc(fs.doc(db,"trips",t.id),upd).catch(e=>toast(e.code==="permission-denied"?"Only people on this trip can change it.":"Couldn't sync that change yet. It will retry when you're online."));
+  if(!isShared(t)||!CLOUD.ready) return; const {fs,db}=CLOUD; const x=S.index[t.id];
+  fs.updateDoc(fs.doc(db,"trips",t.id),{trip:cleanForCloud(t),updatedBy:myEmail(),updatedAt:nowISO()}).catch(e=>toast(e.code==="permission-denied"?"Only people on this trip can change it.":"Couldn't sync that change yet. It will retry when you're online."));
+  if(x&&x.owner===myEmail()) fs.updateDoc(fs.doc(db,"tripIndex",t.id),{members:membersOf(t),summary:cleanForCloud(summaryOf(t)),openUntil:fs.Timestamp.fromMillis(openUntilFor(t)),currency:t.currency||"GBP"}).catch(()=>{});
   if(note) logActivity(t,note);
+}
+function recordBalances(id){ // keeps everyone's final balance on the record, so it survives after the trip closes
+  const t=allTrips()[id], x=S.index[id]; if(!t||!x||!fullAccess(id)) return;
+  const {B,spent}=balances(t); const bal={}; Object.entries(B).forEach(([k,b])=>bal[k]=b.bal);
+  if(JSON.stringify(bal)===JSON.stringify(x.balances||{})&&spent===x.spent) return;
+  x.balances=bal; x.spent=spent; const {fs,db}=CLOUD;
+  fs.updateDoc(fs.doc(db,"tripIndex",id),{balances:bal,spent,balancesAt:nowISO()}).catch(()=>{});
 }
 function cloudSetStatus(t,kind,item,val){
   const {fs,db}=CLOUD; const key=kind+":"+item.id;
@@ -1556,7 +1625,7 @@ function peopleCard(t){
       <input type="hidden" name="count" value="${ps.length+1}"><div class="row"><button class="btn primary">Save people</button><button type="button" class="btn" data-people-add>Add another</button><button type="button" class="btn" data-people-cancel>Cancel</button></div></form></div>`;
   }
   let share;
-  if(sh) share=`<p class="small" style="margin:8px 0 0"><span class="pill s-booked">Shared</span> Everyone listed with an email sees this trip, its ticks and expenses live once they sign in to Tripster with that email. Owner: ${esc(nameOf(t,sh.owner))}.${sh.owner!==me?" Only the owner can add or remove people.":""}</p>`;
+  if(sh) share=`<p class="small" style="margin:8px 0 0"><span class="pill s-booked">Shared</span> Planned by <strong>${esc(nameOf(t,sh.owner))}</strong>. Everyone listed sees the plan, ticks and expenses live until ${esc(fmtDay(addDays(t.end,OPEN_DAYS_AFTER),true))}. After that, only the planner keeps the full trip; the others keep a record (dates, places, people and final balances).${sh.owner!==me?" Only the planner can add or remove people.":""}</p>`;
   else if(!fbConfig()) share=`<p class="small muted" style="margin:8px 0 0">Saved on this device only. Shared trips need the free Firebase setup (docs/shared-trips.md).</p>`;
   else if(!verified()) share= CLOUD.user? `<p class="small" style="margin:8px 0 0">Confirm your email first (see the bar at the top of the home page), then share from here.</p>` : `<p class="small" style="margin:8px 0">Sign in to share this trip so everyone sees the same bookings and expenses.</p>${CLOUD.ready?authForm():""}`;
   else share=`<p class="small" style="margin:8px 0">This trip is only on this device. Share it with the people above so you all see the same bookings, ticks and expenses.</p><button class="btn primary" data-share-group ${ps.some(p=>p.email)?"":"disabled"}>Share with the group</button>${ps.some(p=>p.email)?"":`<span class="small muted"> Add at least one email first.</span>`}`;
@@ -1574,13 +1643,15 @@ async function shareGroup(){
   const t=trip(); if(!t||!verified()) return; const {fs,db}=CLOUD; const me=myEmail();
   const ps=tripPeople(t); if(!ps.some(p=>p.email===me)){ ps.push({name:S.userName||me.split("@")[0],email:me}); t.people=ps; t.travellers=ps.map(p=>p.name); keepLocal(t); }
   try{
-    await fs.setDoc(fs.doc(db,"trips",t.id),{owner:me,members:membersOf(t),trip:cleanForCloud(t),updatedBy:me,updatedAt:nowISO()});
+    await fs.setDoc(fs.doc(db,"tripIndex",t.id),{owner:me,members:membersOf(t),summary:cleanForCloud(summaryOf(t)),openUntil:fs.Timestamp.fromMillis(openUntilFor(t)),currency:t.currency||"GBP",createdAt:nowISO()});
+    await fs.setDoc(fs.doc(db,"trips",t.id),{owner:me,trip:cleanForCloud(t),updatedBy:me,updatedAt:nowISO()});
+    S.index[t.id]={owner:me,members:membersOf(t),summary:summaryOf(t),openUntil:openUntilFor(t),balances:null,spent:0,currency:t.currency||"GBP"};
     S.shared[t.id]={owner:me,members:membersOf(t)}; setSource(t.id,"shared");
     const st=S.status[t.id]||{}; const b=fs.writeBatch(db);
     Object.entries(st).filter(([k])=>!k.startsWith("check:")).forEach(([k,v])=>b.set(fs.doc(db,"trips",t.id,"status",k),{val:v,by:me,at:nowISO()}));
     (loadJSON("ts.exp."+t.id)||[]).forEach(x=>{ const c=Object.assign({},x); delete c.id; c.by=me; b.set(fs.doc(db,"trips",t.id,"expenses",x.id),c); });
-    await b.commit(); logActivity(t,"shared the trip"); watchStatus(t.id); ensureTripSub(t); render(); toast("Shared. Send everyone the app link.");
-  }catch(e){ toast(e.code==="permission-denied"?"A shared trip with this id already exists and isn't yours. Rename the trip and try again.":"Couldn't share right now: "+(e.code||e.message)); }
+    await b.commit(); logActivity(t,"shared the trip"); if(!CLOUD.subs["st:"+t.id]) watchStatus(t.id); if(!CLOUD.subs["doc:"+t.id]) watchTripDoc(t.id); ensureTripSub(t); render(); toast("Shared. Send everyone the app link.");
+  }catch(e){ toast(e.code==="permission-denied"?"A shared trip with this name and year already exists and isn't yours. Rename the trip and try again.":"Couldn't share right now: "+(e.code||e.message)); }
 }
 function activityCard(t){
   const A=S.activity[t.id]; if(!isShared(t)) return "";
@@ -1684,6 +1755,7 @@ async function cloudClick(el){
   if(el.hasAttribute("data-people-cancel")){ S.peopleEdit=false; render(); return true; }
   if(el.hasAttribute("data-people-add")){ const f=el.closest("form"); const n=+f.count.value; const row=document.createElement("div"); row.className="two prow"; row.innerHTML=`<input name="pn${n}" placeholder="Name" aria-label="Name ${n+1}"><input name="pe${n}" type="email" placeholder="Email (optional)" aria-label="Email ${n+1}">`; f.count.value=n+1; f.insertBefore(row,f.count); row.querySelector("input").focus(); return true; }
   if(el.hasAttribute("data-share-group")){ shareGroup(); return true; }
+  if(el.dataset.record){ S.recordId=el.dataset.record; S.screen="record"; render(); window.scrollTo({top:0}); return true; }
   if(el.dataset.expEdit){ S.expEdit=el.dataset.expEdit; render(); const f=document.querySelector("[data-exp-form]"); if(f) f.scrollIntoView({block:"start",behavior:"smooth"}); setTimeout(expEachText,0); return true; }
   if(el.hasAttribute("data-exp-cancel")){ S.expEdit=null; const fm=document.querySelector("[data-exp-form]"); if(fm) fm.reset(); render(); return true; }
   if(el.dataset.expDel){ const id=el.dataset.expDel; if(S.confirm!=="exp:"+id){ S.confirm="exp:"+id; render(); return true; } S.confirm=null; deleteExpense(t,id); render(); toast("Deleted"); return true; }

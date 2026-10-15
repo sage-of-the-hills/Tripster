@@ -1,8 +1,14 @@
 rules_version = '2';
 
 // Tripster shared trips.
-// A trip is readable and writable only by the email addresses listed in its "members".
-// Accounts must have a verified email, so nobody can join a trip by typing someone else's address.
+//
+// tripIndex/{tripId}  a small record of the trip (title, dates, places, people, final balances).
+//                     Everyone on the trip can always read it.
+// trips/{tripId}      the full plan, booking ticks, expenses and change log.
+//                     The planner (owner) can always read it; everyone else only until "openUntil",
+//                     a couple of days after the trip ends. After that they keep just the record.
+//
+// Accounts must have a confirmed email, so nobody can join a trip by typing someone else's address.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -12,37 +18,51 @@ service cloud.firestore {
         && request.auth.token.email_verified == true;
     }
     function me() { return request.auth.token.email.lower(); }
-    function tripDoc(tripId) { return get(/databases/$(database)/documents/trips/$(tripId)); }
-    function isMember(tripId) { return signedIn() && me() in tripDoc(tripId).data.members; }
+    function record(tripId) { return get(/databases/$(database)/documents/tripIndex/$(tripId)).data; }
+    function isPlanner(tripId) { return signedIn() && record(tripId).owner == me(); }
+    function hasFullAccess(tripId) {
+      return signedIn() && (record(tripId).owner == me()
+        || (me() in record(tripId).members && request.time < record(tripId).openUntil));
+    }
 
-    match /trips/{tripId} {
+    match /tripIndex/{tripId} {
       allow read: if signedIn() && me() in resource.data.members;
       allow create: if signedIn()
-        && me() in request.resource.data.members
         && request.resource.data.owner == me()
-        && request.resource.data.members.size() <= 30;
-      // Any member can edit the plan; only the owner can change who is on the trip or hand it over.
+        && me() in request.resource.data.members
+        && request.resource.data.members.size() <= 30
+        && request.resource.data.openUntil is timestamp;
+      // The planner edits the record and the people on it. Others may only keep the balances up to date,
+      // and only while the trip is open.
       allow update: if signedIn() && me() in resource.data.members
         && request.resource.data.owner == resource.data.owner
-        && (me() == resource.data.owner || request.resource.data.members == resource.data.members)
-        && request.resource.data.members.size() <= 30;
+        && request.resource.data.members.size() <= 30
+        && (me() == resource.data.owner
+            || (request.time < resource.data.openUntil
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balances', 'spent', 'balancesAt'])));
       allow delete: if signedIn() && me() == resource.data.owner;
+    }
 
-      // Booking ticks, expenses and the change log
+    match /trips/{tripId} {
+      allow read: if hasFullAccess(tripId);
+      allow create: if isPlanner(tripId) && request.resource.data.owner == me();
+      allow update: if hasFullAccess(tripId) && request.resource.data.owner == resource.data.owner;
+      allow delete: if isPlanner(tripId);
+
       match /status/{key} {
-        allow read: if isMember(tripId);
-        allow write: if isMember(tripId) && request.resource.data.by == me();
+        allow read: if hasFullAccess(tripId);
+        allow write: if hasFullAccess(tripId) && request.resource.data.by == me();
       }
       match /expenses/{expenseId} {
-        allow read: if isMember(tripId);
-        allow create, update: if isMember(tripId) && request.resource.data.by == me()
+        allow read: if hasFullAccess(tripId);
+        allow create, update: if hasFullAccess(tripId) && request.resource.data.by == me()
           && request.resource.data.amount is int && request.resource.data.amount > 0
           && request.resource.data.amount < 100000000;
-        allow delete: if isMember(tripId);
+        allow delete: if hasFullAccess(tripId);
       }
       match /activity/{entryId} {
-        allow read: if isMember(tripId);
-        allow create: if isMember(tripId) && request.resource.data.by == me();
+        allow read: if hasFullAccess(tripId);
+        allow create: if hasFullAccess(tripId) && request.resource.data.by == me();
       }
     }
   }
