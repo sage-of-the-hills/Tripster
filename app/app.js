@@ -659,17 +659,142 @@ function viewExplore(t){
       `<ul class="results">${R.items.map((r,i)=>`<li><span><strong>${esc(r.name)}</strong><br><span class="small muted">${esc([r.admin1,r.country].filter(Boolean).join(", "))}</span></span>
         <span class="row"><select class="field" id="add-day-${i}" style="width:auto" aria-label="Add to day"><option value="">Just add to trip</option>${(t.days||[]).map(d=>`<option value="${esc(d.date)}">Add to ${esc(fmtDay(d.date,true))}</option>`).join("")}</select><button class="btn primary" data-add-place="${i}">Add</button></span></li>`).join("")}</ul>`):""}
   </div>
-  <div class="section-head"><h2>Places on this trip</h2><span class="small muted">${keys.length} places · tap one for things to see</span></div>
-  ${keys.length?`<div class="placelist">${keys.map(k=>placeCard(t,k,dayOf[k]||[],W,today)).join("")}</div>`:`<div class="empty">No places yet. Search above to add your first one.</div>`}
+  ${exploreDays(t,keys,dayOf,W,today)}
   ${exploreDiscover(t)}
   <div class="card" style="margin-top:14px"><div class="spread"><div><h3>Maps without signal</h3><p class="small" style="margin:0">Save these areas in Google Maps before you go.</p></div><button class="btn" data-go="offline">Offline maps</button></div></div>`;
 }
-function placeCard(t,k,dates,W,today){
+/* Explore, one day at a time: the places on each day, then a few ideas that fit that day's plan. */
+function exploreDays(t,keys,dayOf,W,today){
+  if(!keys.length) return `<div class="section-head"><h2>Places on this trip</h2></div><div class="empty">No places yet. Search above to add your first one.</div>`;
+  const days=(t.days||[]).filter(d=>d.steps.some(s=>t.places[s.place]&&!isStay(t,s.place)));
+  if(!days.length) return `<div class="section-head"><h2>Places on this trip</h2><span class="small muted">${keys.length} places · tap one for things to see</span></div><div class="placelist">${keys.map(k=>placeCard(t,k,dayOf[k]||[],W,today)).join("")}</div>`;
+  if(!S.openDays){ S.openDays={}; const on=days.find(d=>d.date===today); if(on) S.openDays[on.date]=true; }
+  const ideas=assignIdeas(t);
+  const stays=keys.filter(k=>isStay(t,k)), loose=keys.filter(k=>!isStay(t,k)&&!(dayOf[k]||[]).length);
+  const grp=(d)=>{ const ks=[...new Set(d.steps.map(s=>s.place).filter(k=>t.places[k]&&!isStay(t,k)))]; const fit=dayFit(t,d); const I=ideas[d.date];
+    const others=k=>(dayOf[k]||[]).filter(x=>x!==d.date);
+    return `<details class="card daygrp" data-daygrp="${esc(d.date)}" style="border-left:5px solid ${esc(d.color||"var(--accent)")}" ${S.openDays[d.date]?"open":""}>
+      <summary><span style="min-width:0"><span class="eyebrow">${esc(fmtDay(d.date,true))}</span><strong class="dg-title">${esc(d.title||"")}</strong><span class="small muted">${ks.length} place${ks.length===1?"":"s"} · ${esc(fit.short)}</span></span><span class="chev">${ICON.chev}</span></summary>
+      <div class="placelist">${ks.map(k=>placeCard(t,k,others(k),W,today,true)).join("")}</div>
+      <div class="ideas"><div class="spread"><h4 style="margin:0">Worth adding to this day</h4></div><p class="small muted" style="margin:2px 0 8px">${esc(fit.label)}</p>
+      ${!I?(navigator.onLine?`<p class="small muted">Looking along your route…</p>`:`<p class="small muted">Ideas need a connection.</p>`):I.error?`<p class="small" style="color:var(--bad)">${esc(I.error)}</p>`:!I.items.length?`<p class="small muted">${fit.max<=1?"Nothing notable right on your way. This day is already well filled.":"Nothing well-known nearby that isn't already on your plan."}</p>`:`<div class="hscroll">${I.items.map(x=>ideaCard(t,x,d)).join("")}</div>`}</div>
+    </details>`; };
+  return `<div class="section-head"><h2>Your days</h2><span class="small muted">${keys.length} places · open a day for its places and ideas</span></div>
+    <div class="daygrps">${days.map(grp).join("")}</div>
+    ${stays.length?`<details class="card daygrp" data-daygrp="stays" ${S.openDays.stays?"open":""}><summary><span><span class="eyebrow">Stays</span><strong class="dg-title">Where you sleep</strong><span class="small muted">${stays.length} place${stays.length===1?"":"s"}</span></span><span class="chev">${ICON.chev}</span></summary><div class="placelist">${stays.map(k=>placeCard(t,k,dayOf[k]||[],W,today)).join("")}</div></details>`:""}
+    ${loose.length?`<details class="card daygrp" data-daygrp="loose" open><summary><span><span class="eyebrow">Not on a day yet</span><strong class="dg-title">Added places</strong><span class="small muted">${loose.length} place${loose.length===1?"":"s"}</span></span><span class="chev">${ICON.chev}</span></summary><div class="placelist">${loose.map(k=>placeCard(t,k,[],W,today)).join("")}</div></details>`:""}`;
+}
+function kmBetween(a,b){ const R=6371, r=Math.PI/180, dLa=(b.lat-a.lat)*r, dLo=(b.lon-a.lon)*r; const h=Math.sin(dLa/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(h))); }
+function dayRoute(t,d){ return (d.route&&d.route.length? d.route : d.steps.map(s=>s.place)).filter(k=>t.places[k]); }
+// the cheapest place to slot a new stop into a day's route, as extra kilometres
+function bestInsert(t,d,x){
+  const r=dayRoute(t,d); if(!r.length) return null; const P=k=>t.places[k];
+  if(r.length===1) return {a:r[0],b:null,extra:2*kmBetween(P(r[0]),x)};
+  let best=null; for(let i=0;i<r.length-1;i++){ if(r[i]===r[i+1]) continue; const A=P(r[i]),B=P(r[i+1]); const e=kmBetween(A,x)+kmBetween(x,B)-kmBetween(A,B); if(!best||e<best.extra) best={a:r[i],b:r[i+1],extra:e}; }
+  return best||{a:r[0],b:null,extra:2*kmBetween(P(r[0]),x)};
+}
+const ROADF=1.3, KMH=65; // straight line to road distance, and average driving speed
+function driveMin(km){ return Math.round(km*ROADF/KMH*60); }
+function fmtMin(m){ return m<60? m+" min" : Math.floor(m/60)+" h"+(m%60>=10?" "+(m%60)+" min":""); }
+// How much room a day has: daylight (with an hour of twilight each side) not already used by the plan.
+function dayFit(t,d){
+  const dl=t.daylight; let L0=8*60,L1=20*60; if(dl&&mins(dl.sunrise)!=null&&mins(dl.sunset)!=null){ L0=mins(dl.sunrise)-60; L1=mins(dl.sunset)+60; }
+  const times=d.steps.map(s=>mins(s.time)).filter(v=>v!=null), r=dayRoute(t,d);
+  let km=0; for(let i=0;i<r.length-1;i++) km+=kmBetween(t.places[r[i]],t.places[r[i+1]]);
+  const stops=new Set(r.filter(k=>!isStay(t,k))).size;
+  let free;
+  if(times.length>=2){ const a=Math.min(...times), b=Math.max(...times)+45; free=Math.max(0,Math.min(a,L1)-L0)+Math.max(0,L1-Math.max(b,L0)); }
+  else free=(L1-L0)-stops*50-driveMin(km);
+  free=Math.max(0,Math.round(free));
+  if(free<45) return {free,max:1,maxKm:10,short:"packed day",label:"A packed day, so only a quick stop right on your way."};
+  if(free<150) return {free,max:2,maxKm:45,short:`about ${fmtMin(free)} free`,label:`About ${fmtMin(free)} of daylight to spare: room for one or two short stops near your route.`};
+  return {free,max:3,maxKm:110,short:`about ${fmtMin(free)} free`,label:`About ${fmtMin(free)} of daylight to spare, so there's room for a little more.`};
+}
+// Notable sights (Wikidata) in a box around one day's route. Ranked by how widely they're written about,
+// the closest open signal to "everyone recommends it". Reviews are a tap away on each card.
+// stop-sized places only: big features (volcanoes, glaciers, lakes, parks) sit on one centre point and
+// would look "on your way" when they aren't really a stop
+const IDEA_TYPES={Q34038:"Waterfall",Q150784:"Canyon",Q35509:"Cave",Q177380:"Hot spring",Q83471:"Geyser",Q40080:"Beach",Q23413:"Castle",Q16560:"Palace",Q839954:"Archaeological site",Q6017969:"Viewpoint",Q39715:"Lighthouse",Q2977:"Cathedral",Q33506:"Museum",Q207694:"Art museum",Q570116:"Sight",Q187223:"Lagoon",Q204324:"Crater lake",Q1210950:"Natural arch",Q107679:"Cliff",Q1107656:"Garden",Q676050:"Old town",Q16970:"Church",Q4989906:"Monument",Q1759852:"Glacial lagoon",Q3240715:"Crater",Q1440300:"Observation tower",Q174782:"Square",Q11303:"Skyscraper",Q22698:"Park",Q57821:"Fortification",Q2232001:"Hot spring pool",Q1060829:"Public bath"};
+async function loadDayIdeas(t,d){
+  const key=t.id+"|"+d.date; S.dayIdeas=S.dayIdeas||{}; if(S.dayIdeas[key]&&!S.dayIdeas[key].error) return;
+  const r=dayRoute(t,d); if(!r.length) return; const fit=dayFit(t,d);
+  const lats=r.map(k=>t.places[k].lat), lons=r.map(k=>t.places[k].lon), pad=Math.max(6,fit.maxKm/2);
+  const mid=(Math.min(...lats)+Math.max(...lats))/2, dLa=pad/111, dLo=pad/(111*Math.max(.2,Math.cos(mid*Math.PI/180)));
+  const box=[Math.min(...lons)-dLo,Math.min(...lats)-dLa,Math.max(...lons)+dLo,Math.max(...lats)+dLa].map(v=>v.toFixed(2));
+  const ck="box2."+box.join(","); const hit=discCache(ck); if(hit){ S.dayIdeas[key]={items:hit}; render(); return; }
+  if(!navigator.onLine) return;
+  S.dayIdeas[key]={busy:true};
+  const q=`SELECT ?item ?l ?d ?coord ?links ?img ?ty WHERE {
+    SERVICE wikibase:box { ?item wdt:P625 ?coord. bd:serviceParam wikibase:cornerSouthWest "Point(${box[0]} ${box[1]})"^^geo:wktLiteral. bd:serviceParam wikibase:cornerNorthEast "Point(${box[2]} ${box[3]})"^^geo:wktLiteral. }
+    VALUES ?ty { ${Object.keys(IDEA_TYPES).map(x=>"wd:"+x).join(" ")} } ?item wdt:P31 ?ty.
+    ?item wikibase:sitelinks ?links. FILTER(?links >= 4)
+    ?item rdfs:label ?l FILTER(lang(?l)="en")
+    OPTIONAL{ ?item schema:description ?d FILTER(lang(?d)="en") } OPTIONAL{ ?item wdt:P18 ?img }
+  } ORDER BY DESC(?links) LIMIT 120`;
+  try{ const rows=await withTimeout(sparql(q),30000); const m={};
+    rows.forEach(b=>{ const id=b.item.value.split("/").pop(); const c=(b.coord.value.match(/Point\(([-\d.e]+) ([-\d.e]+)\)/)||[]); if(!c[1]) return;
+      const ty=b.ty.value.split("/").pop(); const links=+b.links.value; if(/^Q\d+$/.test(b.l.value)) return;
+      if(!m[id]) m[id]={id,name:b.l.value,desc:b.d?b.d.value:"",lat:+c[2],lon:+c[1],links,img:b.img?b.img.value:"",type:IDEA_TYPES[ty]||"Sight"};
+      else if(m[id].type==="Sight"&&IDEA_TYPES[ty]) m[id].type=IDEA_TYPES[ty]; });
+    const items=Object.values(m).slice(0,60);
+    // every name each place goes by (other languages, alternative names), so places already planned under
+    // another name, like Gljúfrabúi for Gljúfrafoss, aren't suggested again
+    if(items.length){ try{ const rows=await withTimeout(sparql(`SELECT ?item (GROUP_CONCAT(DISTINCT ?n;separator="|") AS ?ns) WHERE { VALUES ?item { ${items.map(x=>"wd:"+x.id).join(" ")} } { ?item rdfs:label ?n } UNION { ?item skos:altLabel ?n } } GROUP BY ?item`),20000);
+      const by={}; rows.forEach(b=>{ by[b.item.value.split("/").pop()]=[...new Set(b.ns.value.split("|").map(normName).filter(Boolean))].slice(0,40); });
+      items.forEach(x=>{ x.alts=by[x.id]||[]; }); }catch(e){} }
+    discCache(ck,items); S.dayIdeas[key]={items}; }
+  catch(e){ S.dayIdeas[key]={error:"Couldn't reach Wikidata just now. Open the day again in a minute."}; }
+  render();
+}
+function normName(v){ return String(v||"").toLowerCase().replace(/ð/g,"d").replace(/þ/g,"th").replace(/æ/g,"ae").replace(/ø/g,"o").replace(/ß/g,"ss").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); }
+function tripNames(t){ const set=new Set(); const add=v=>String(v||"").split(/,|\/|&|\band\b|\(|\)/).forEach(p=>{ const n=normName(p); if(n.length>2) set.add(n); });
+  Object.values(t.places).forEach(p=>add(p.name)); (t.days||[]).forEach(d=>d.steps.forEach(st=>add(st.title))); return set; }
+function onTrip(t,x){ const names=tripNames(t); if([x.name,...(x.alts||[])].some(n=>names.has(normName(n)))) return true;
+  return Object.values(t.places).some(p=>kmBetween(p,x)<0.35); }
+// each idea goes to the one day it fits best, so the same place isn't suggested twice
+function assignIdeas(t){
+  const out={}, best={}; const days=(t.days||[]);
+  days.forEach(d=>{ const I=S.dayIdeas&&S.dayIdeas[t.id+"|"+d.date]; if(!I||!I.items) return; const fit=dayFit(t,d);
+    I.items.forEach(x=>{ if(onTrip(t,x)) return; const ins=bestInsert(t,d,x); if(!ins||ins.extra>fit.maxKm) return;
+      const score=Math.log(x.links+1)*10-ins.extra*0.35; if(!best[x.id]||ins.extra<best[x.id].ins.extra) best[x.id]={x,ins,score,date:d.date}; }); });
+  days.forEach(d=>{ const I=S.dayIdeas&&S.dayIdeas[t.id+"|"+d.date]; if(!I) return; if(!I.items){ out[d.date]=I; return; }
+    const fit=dayFit(t,d); out[d.date]={items:Object.values(best).filter(b=>b.date===d.date).sort((a,b)=>b.score-a.score).slice(0,fit.max).map(b=>Object.assign({},b.x,{ins:b.ins}))}; });
+  return out;
+}
+function reviewLinks(t,x){ const q=encodeURIComponent(x.name+(t.region?" "+t.region:""));
+  return `<span class="idea-links"><a href="https://www.tripadvisor.com/Search?q=${q}" target="_blank" rel="noopener">Tripadvisor</a><a href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${x.lat},${x.lon},14z" target="_blank" rel="noopener">Google reviews</a><a href="https://www.reddit.com/search/?q=${q}" target="_blank" rel="noopener">Reddit</a></span>`; }
+function noImg(x){ return `<div class="noimg"><span>${esc((x.name||"?").slice(0,1))}</span></div>`; }
+function ideaCard(t,x,d){
+  const ins=x.ins, mins_=driveMin(ins.extra), A=t.places[ins.a], B=ins.b&&t.places[ins.b];
+  const where=ins.extra<2? "Right on your way" : B&&A&&ins.a!==ins.b? `Between ${A.name} and ${B.name}` : A? `From ${A.name}`:"";
+  return `<div class="sug">${x.img?`<img loading="lazy" alt="" src="${esc(thumb(x.img,360))}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'noimg'}))">`:noImg(x)}
+    <div class="sug-b"><span class="eyebrow">${esc(x.type)}</span><strong>${esc(x.name)}</strong>${x.desc?`<span class="small muted clamp2">${esc(x.desc)}</span>`:""}
+    <span class="small">${esc(where)}${ins.extra>=2?` · <span class="mono">+${esc(fmtMin(mins_))}</span> drive`:""}</span>
+    ${reviewLinks(t,x)}
+    <div class="row" style="margin-top:6px"><button class="btn sm primary" data-idea-add="${esc(x.id)}" data-idea-day="${esc(d.date)}">Add to this day</button></div></div></div>`;
+}
+function insertIntoDay(t,d,key,name){
+  const ins=bestInsert(t,d,t.places[key]);
+  let ia=ins?d.steps.findIndex(s=>s.place===ins.a):-1; const ib=ins&&ins.b? d.steps.findIndex((s,j)=>j>ia&&s.place===ins.b) : -1;
+  const pos= ib>=0? ib : ia>=0? ia+1 : d.steps.length;
+  d.steps.splice(pos,0,{time:"",title:name,place:key,added:true});
+  if(d.route&&d.route.length&&ins){ const j=d.route.findIndex((k,i)=>k===ins.a&&d.route[i+1]===ins.b); if(j>=0) d.route.splice(j+1,0,key); else d.route.push(key); }
+  return ins;
+}
+function newPlaceKey(t,name){ let base=slug(name).replace(/-/g,"").toUpperCase().slice(0,12)||"PLACE", key=base, i=2; while(t.places[key]) key=base+(i++); return key; }
+function ideasClick(el){
+  const t=trip(); if(!t) return false;
+  if(el.dataset.ideaAdd){ const d=(t.days||[]).find(x=>x.date===el.dataset.ideaDay); const I=S.dayIdeas&&Object.values(S.dayIdeas).find(v=>v.items&&v.items.some(x=>x.id===el.dataset.ideaAdd)); const x=I&&I.items.find(y=>y.id===el.dataset.ideaAdd); if(!d||!x) return true;
+    const key=newPlaceKey(t,x.name); t.places[key]={name:x.name,lat:x.lat,lon:x.lon,area:t.region||"",added:true};
+    insertIntoDay(t,d,key,x.name); persistTrip(t); const y=window.scrollY; render(); window.scrollTo(0,y); ensureWx(t,true); toast(`Added ${x.name} to ${fmtDay(d.date,true)}`); return true; }
+  return false;
+}
+function placeCard(t,k,dates,W,today,inDay){
   const p=t.places[k]; const px=W&&W.places[k];
   let now=""; if(px){ const date=px.d.time.includes(today)?today:null; if(date){ const hh=String(new Date().getHours()).padStart(2,"0")+":00"; const i=TSWX.hourIndex(px,date,hh); if(i>=0) now=`<span class="row small" style="gap:4px">${wxIcon(px.h.c[i])}<span class="mono">${Math.round(px.h.t[i])}°</span></span>`; } }
   const near=S.nearby[k];
   return `<details class="card place" data-place="${esc(k)}" ${S.openPlace===k?"open":""}>
-    <summary><span style="min-width:0"><strong>${esc(p.name)}</strong><br><span class="small muted">${esc(dates.length? dates.map(d=>fmtDay(d,true)).join(", ") : (p.area||"Not on a day yet"))}</span></span><span class="row" style="gap:10px;flex-wrap:nowrap">${now}<span class="chev">${ICON.chev}</span></span></summary>
+    <summary><span style="min-width:0"><strong>${esc(p.name)}</strong><br><span class="small muted">${esc(inDay? (dates.length?"Also on "+dates.map(d=>fmtDay(d,true)).join(", "):(p.area||"")) : dates.length? dates.map(d=>fmtDay(d,true)).join(", ") : (p.area||"Not on a day yet"))}</span></span><span class="row" style="gap:10px;flex-wrap:nowrap">${now}<span class="chev">${ICON.chev}</span></span></summary>
     <div class="links">${exploreLinks(t,p).map(([a,b,u])=>`<a href="${esc(u)}" target="_blank" rel="noopener"><span>${esc(a)}<small>${esc(b)}</small></span><span class="ext">${ICON.ext}</span></a>`).join("")}</div>
     <div class="row" style="margin-top:12px"><button class="btn" data-near="${esc(k)}" ${navigator.onLine||near?"":"disabled"}>${near?"Refresh nearby sights":"Nearby sights on Wikipedia"}</button><a class="btn" href="${gmapsPlace(p)}" target="_blank" rel="noopener">${ICON.map} Map</a><button class="btn" data-wx-place-go="${esc(k)}">Weather</button>
       ${p.added?`<button class="btn" data-remove-place="${esc(k)}">${S.confirm==="place:"+k?"Tap again to remove":"Remove"}</button>`:""}</div>
@@ -854,6 +979,7 @@ async function moreClicks(el){
   if(await cloudClick(el)) return true;
   if(await builderClick(el)) return true;
   if(await discoverClick(el)) return true;
+  if(ideasClick(el)) return true;
   const t=trip();
   if(el.hasAttribute("data-copy-prompt")){ try{ await navigator.clipboard.writeText(PROMPT); toast("Prompt copied. Paste it into your AI assistant."); }catch(e){ toast("Copy isn't available here. Open the prompt and select it."); } return true; }
   if(el.hasAttribute("data-wx-refresh")){ if(t) ensureWx(t,true); return true; }
@@ -916,9 +1042,24 @@ function storyOf(t){
   const bm=t.basemap&&/^maps\/[\w-]+\.(jpg|png|webp)$/.test(t.basemap.src||"")?t.basemap:null; // only maps that ship with the app
   return {format:"tripster-story/1",title:t.title,start:t.start,end:t.end,region:t.region||"",by:S.userName||"",days,...(bm?{bm}:{})};
 }
+function randId(n){ const A="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", b=crypto.getRandomValues(new Uint8Array(n)); return [...b].map(x=>A[x%A.length]).join(""); }
+function withTimeout(p,ms){ return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]); }
+// With an account the story is saved online and the link is just its id (#s=...). Without one, the story
+// travels inside the link itself, which is longer.
+async function storyLink(t){
+  const base=location.origin+location.pathname, st=storyOf(t);
+  if(CLOUD.ready&&CLOUD.user&&verified()&&navigator.onLine){
+    const fs=CLOUD.fs, ids=loadJSON("ts.storyIds")||{};
+    const write=id=>withTimeout(fs.setDoc(fs.doc(CLOUD.db,"stories",id),{uid:CLOUD.user.uid,story:cleanForCloud(st),at:fs.serverTimestamp()}),8000);
+    for(const id of [ids[t.id],randId(10)].filter(Boolean)){
+      try{ await write(id); ids[t.id]=id; saveJSON("ts.storyIds",ids); return base+"#s="+id; }catch(e){}
+    }
+  }
+  return base+"#story="+(await packTrip(st));
+}
 async function shareLink(){
   const t=trip(); if(!t) return;
-  const url=location.origin+location.pathname+"#story="+(await packTrip(storyOf(t)));
+  toast("Making the link…"); const url=await storyLink(t);
   const text=`${t.title}: where we went, day by day.`;
   const touch=matchMedia("(pointer:coarse)").matches;
   if(touch&&navigator.share){ try{ await navigator.share({title:t.title,text,url}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
@@ -936,12 +1077,12 @@ function storyAsTrip(st){ // turn a story into the shape the map drawing expects
 function validStory(o){ return o&&o.format==="tripster-story/1"&&typeof o.title==="string"&&Array.isArray(o.days)&&o.days.every(d=>Array.isArray(d.p)&&d.p.every(p=>isFinite(p.la)&&isFinite(p.lo))); }
 function stories(){ return loadJSON("ts.stories")||[]; }
 function viewStory(){
-  const st=S.story; if(!st) return `<div class="empty">This story isn't available.</div>`;
+  const st=S.story; if(!st) return S.storyErr? `<div class="empty">This trip story isn't available. It may have been removed, or the link was cut short when it was copied.</div>` : `<div class="empty">Opening the trip story…</div>`;
   const kept=stories().some(x=>x.title===st.title&&x.start===st.start);
   const T=storyAsTrip(st); const n=st.days.reduce((a,d)=>a+d.p.length,0);
   return `<div class="card"><div class="eyebrow">Trip story${st.by?` from ${esc(st.by)}`:""}</div><h2 style="margin:4px 0">${esc(st.title)}</h2>
      <p class="small mono muted" style="margin:0">${esc(fmtDay(st.start,true))} – ${esc(fmtDay(st.end,true))} ${pd(st.end)?pd(st.end).y:""}${st.region?" · "+esc(st.region):""} · ${st.days.length} days · ${n} places</p></div>
-   ${n>1?`<div class="mapbox" style="margin-top:14px">${mapSVG(T,null,700)}</div>`:""}
+   ${n>1?`<div class="mapbox static" style="margin-top:14px">${mapSVG(T,null,700)}</div>`:""}
    <div class="section-head"><h2>Day by day</h2></div>
    <div class="grid cols-2">${st.days.map(d=>`<div class="card" style="border-top:5px solid ${esc(d.c||"var(--accent)")}"><div class="eyebrow">${esc(fmtDay(d.d,true))}</div><h3 style="margin:2px 0 8px">${esc(d.t)}</h3>
      ${d.p.length?`<div class="chips">${d.p.map(p=>`<a class="chip" href="https://www.google.com/maps/search/?api=1&query=${p.la}%2C${p.lo}" target="_blank" rel="noopener">${esc(p.n)}</a>`).join("")}</div>`:`<p class="small muted" style="margin:0">A free day.</p>`}</div>`).join("")}</div>
@@ -949,6 +1090,15 @@ function viewStory(){
    <p class="small muted">A trip story shows only the days and places. Bookings, stays, costs and people aren't included.</p>`;
 }
 async function readIncoming(){
+  const sid=(location.hash||"").match(/^#s=([A-Za-z0-9]{6,24})$/);
+  if(sid){ try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+    S.story=null; S.storyErr=false; S.screen="story"; render(); window.scrollTo({top:0});
+    try{ for(let i=0;i<80&&!fbConfig();i++) await new Promise(r=>setTimeout(r,100));
+      if(!fbConfig()) throw 0; initCloud(); for(let i=0;i<120&&!CLOUD.ready;i++) await new Promise(r=>setTimeout(r,100));
+      const fs=CLOUD.fs, snap=await withTimeout(fs.getDoc(fs.doc(CLOUD.db,"stories",sid[1])),15000);
+      const o=snap.exists()&&snap.data().story; if(!validStory(o)) throw 0; S.story=o; }
+    catch(e){ S.storyErr=true; }
+    render(); return; }
   const sm=(location.hash||"").match(/^#story=([A-Za-z0-9_-]+)/);
   if(sm){ try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
     try{ const o=JSON.parse(await unpackTrip(sm[1])); if(!validStory(o)) throw 0; S.story=o; S.screen="story"; }catch(e){ S.incoming={error:true}; S.screen="home"; }
@@ -1446,21 +1596,29 @@ function exploreDiscover(t){
   const D=S.bData&&S.bData.q===c.q? S.bData : null; const mode=S.discMode||"famous";
   if(!D){ return `<div class="card" style="margin-top:14px"><div class="spread"><div><h3>Discover ${esc(c.name)}</h3><p class="small" style="margin:0">Well-known highlights, off-the-beaten-path places, famous road trips and how to get around.</p></div><button class="btn primary" data-disc-load ${navigator.onLine?"":"disabled"}>Show ideas</button></div></div>`; }
   if(D.busy) return `<div class="empty" style="margin-top:14px">Finding places in ${esc(c.name)}…</div>`;
-  const list=mode==="road"? [] : suggestionList({style:mode},D).filter(x=>!Object.values(t.places).some(p=>p.name.toLowerCase()===x.name.toLowerCase()));
-  return `<div class="section-head"><h2>Discover ${esc(c.name)}</h2><div class="seg" role="group">${[["famous","Highlights"],["offbeat","Off-beat"],["road","Road trips"]].map(([k,l])=>`<button data-disc-mode="${k}" aria-pressed="${mode===k}">${l}</button>`).join("")}</div></div>
+  const list=mode==="road"? [] : suggestionList({style:mode},D).filter(x=>x.lat!=null&&!onTrip(t,x));
+  const planned=(t.days||[]).some(d=>dayRoute(t,d).length);
+  if(planned){ const far=x=>{ const b=bestDay(t,x); return !b||b.ins.extra>250? 1 : 0; }; list.forEach((x,i)=>{ x._o=far(x)*1000+i; }); list.sort((a,b)=>a._o-b._o); }
+  const fitTxt=x=>{ if(!planned) return ""; const b=bestDay(t,x); if(!b) return ""; return b.ins.extra<2? `On your way on ${fmtDay(b.d.date,true)}` : b.ins.extra>250? `Far from your route` : `Nearest ${fmtDay(b.d.date,true)} · <span class="mono">+${esc(fmtMin(driveMin(b.ins.extra)))}</span>`; };
+  return `<div class="section-head"><h2>${planned?"More of ":"Discover "}${esc(c.name)}</h2><div class="seg" role="group">${[["famous","Highlights"],["offbeat","Off-beat"],["road","Road trips"]].map(([k,l])=>`<button data-disc-mode="${k}" aria-pressed="${mode===k}">${l}</button>`).join("")}</div></div>
    ${mode==="road"? ((D.trips&&(D.trips.road.length||(D.trips.scenic||[]).length))? `<div class="grid cols-2">${D.trips.road.map(x=>`<div class="card"><div class="spread"><h3>${esc(x.t)}</h3><span class="pill s-optional">Road trip</span></div><p class="small">${esc(x.d)}</p>${srcLink("Read the route on Wikivoyage","https://en.wikivoyage.org/wiki/"+encodeURIComponent(x.t))}</div>`).join("")}${(D.trips.scenic||[]).slice(0,8).map(x=>`<div class="card"><div class="spread"><h3>${esc(x.t)}</h3><span class="pill s-optional">Scenic route</span></div><p class="small">${esc(x.d)}</p>${srcLink("Read on Wikipedia","https://en.wikipedia.org/wiki/"+encodeURIComponent(x.wp))}</div>`).join("")}</div>` : `<div class="empty">No well-known road trips recorded for ${esc(c.name)} yet.</div>`)
-     : `<div class="sugs">${list.slice(0,24).map(x=>`<div class="sug">${x.img?`<img loading="lazy" alt="" src="${esc(thumb(x.img,360))}" onerror="this.style.visibility='hidden'">`:`<div class="noimg"></div>`}<div class="sug-b"><span class="eyebrow">${esc(x.kind||"")}</span><strong>${esc(x.name)}</strong>${x.desc&&x.desc.toLowerCase()!==(x.kind||"").toLowerCase()?`<span class="small muted">${esc(x.desc)}</span>`:""}<div class="row" style="margin-top:6px"><button class="btn" data-disc-add data-b-name="${esc(x.name)}" data-b-lat="${x.lat}" data-b-lon="${x.lon}">Add to trip</button></div></div></div>`).join("")}</div>`}
+     : `${planned?`<p class="small muted" style="margin:-4px 0 8px">The country's best-known places, with how far each is from your plan. Ideas that fit each day are in the days above.</p>`:""}<div class="hscroll">${list.slice(0,24).map(x=>`<div class="sug">${x.img?`<img loading="lazy" alt="" src="${esc(thumb(x.img,360))}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'noimg'}))">`:noImg(x)}<div class="sug-b"><span class="eyebrow">${esc(x.kind||"")}</span><strong>${esc(x.name)}</strong>${x.desc&&x.desc.toLowerCase()!==(x.kind||"").toLowerCase()?`<span class="small muted clamp2">${esc(x.desc)}</span>`:""}${planned?`<span class="small">${fitTxt(x)}</span>`:""}${reviewLinks(t,x)}<div class="row" style="margin-top:6px"><button class="btn sm" data-disc-add data-b-name="${esc(x.name)}" data-b-lat="${x.lat}" data-b-lon="${x.lon}">${planned&&(bestDay(t,x)||{ins:{extra:999}}).ins.extra<=250?"Add to best day":"Add to trip"}</button></div></div></div>`).join("")}</div>`}
    ${D.guide&&D.guide.getAround&&!t.guide?`<details class="card guide" style="margin-top:12px"><summary>Getting around ${esc(c.name)}</summary>${D.guide.getAround}<p class="small muted">From Wikivoyage (CC BY-SA). <button class="linkbtn" data-disc-save-guide>Save to this trip for offline</button></p></details>`:""}`;
 }
 async function discoverClick(el){
   const t=trip(); if(!t) return false;
   if(el.hasAttribute("data-disc-load")){ await countries(); const c=countryByName(t.region); if(c) bLoad(c); return true; }
   if(el.dataset.discMode){ S.discMode=el.dataset.discMode; render(); return true; }
-  if(el.hasAttribute("data-disc-add")){ let base=slug(el.dataset.bName).replace(/-/g,"").toUpperCase().slice(0,12)||"PLACE", key=base, i=2; while(t.places[key]) key=base+(i++);
-    t.places[key]={name:el.dataset.bName,lat:+el.dataset.bLat,lon:+el.dataset.bLon,area:t.region,added:true}; persistTrip(t); toast("Added "+el.dataset.bName); const y=window.scrollY; render(); window.scrollTo(0,y); ensureWx(t,true); return true; }
+  if(el.hasAttribute("data-disc-add")){ const name=el.dataset.bName, key=newPlaceKey(t,name);
+    t.places[key]={name,lat:+el.dataset.bLat,lon:+el.dataset.bLon,area:t.region,added:true};
+    const b=bestDay(t,t.places[key]); let msg="Added "+name;
+    if(b&&b.ins.extra<=250){ insertIntoDay(t,b.d,key,name); msg=`Added ${name} to ${fmtDay(b.d.date,true)}`+(b.ins.extra>=2?` (+${fmtMin(driveMin(b.ins.extra))} drive)`:""); }
+    else if(b) msg=`Added ${name}. It's far from your route, so it isn't on a day yet.`;
+    persistTrip(t); toast(msg); const y=window.scrollY; render(); window.scrollTo(0,y); ensureWx(t,true); return true; }
   if(el.hasAttribute("data-disc-save-guide")){ const c=countryByName(t.region); const D=S.bData; if(c&&D&&D.guide){ t.guide={title:"Getting around "+c.name,html:D.guide.getAround,source:"https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.wv)}; persistTrip(t); render(); toast("Saved to the trip"); } return true; }
   return false;
 }
+function bestDay(t,x){ let best=null; (t.days||[]).forEach(d=>{ const ins=bestInsert(t,d,x); if(ins&&(!best||ins.extra<best.ins.extra)) best={d,ins}; }); return best; }
 function guideBlock(t){
   if(!t.guide||!t.guide.html) return "";
   return `<div class="section-head"><h2>${esc(t.guide.title||"Getting around")}</h2></div><details class="card guide"><summary>Read the guide (saved for offline)</summary>${safeHTML(t.guide.html)}<p class="small muted">From Wikivoyage (CC BY-SA). ${t.guide.source?srcLink("Full guide",t.guide.source):""}</p></details>`;
@@ -1879,6 +2037,10 @@ S.cfg={}; fetch("config.json",{cache:"no-cache"}).then(r=>r.ok?r.json():{}).then
   S.loaded=true; pickDefault(); Object.keys(S.localTrips).forEach(id=>{ S.wx[id]=loadJSON("ts.wx."+id); recompute(S.localTrips[id]); }); render(); refreshAll(); writeSwState(); readIncoming();
 })();
 addEventListener("hashchange", ()=>readIncoming());
+// remember which days are open on Explore, and look for ideas when a day opens
+document.addEventListener("toggle", e=>{ const el=e.target; if(!(el instanceof HTMLDetailsElement)||!el.dataset.daygrp) return;
+  S.openDays=S.openDays||{}; S.openDays[el.dataset.daygrp]=el.open; const t=trip(); if(!el.open||!t) return;
+  const d=(t.days||[]).find(x=>x.date===el.dataset.daygrp); if(d) loadDayIdeas(t,d); }, true);
 if("serviceWorker" in navigator && location.protocol!=="file:"){
   navigator.serviceWorker.register("sw.js").then(reg=>{
     S.swReady=!!navigator.serviceWorker.controller||!!reg.active;

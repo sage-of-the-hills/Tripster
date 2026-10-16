@@ -8,6 +8,9 @@ rules_version = '2';
 //                     The planner (owner) can always read it; everyone else only until "openUntil",
 //                     a couple of days after the trip ends. After that they keep just the record.
 //
+// stories/{id}       a trip story: only days and places, shared by link. Anyone with the link can open
+//                     that one story; nobody can list them. Only its author can change or delete it.
+//
 // Accounts must have a confirmed email, so nobody can join a trip by typing someone else's address.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -41,6 +44,16 @@ service cloud.firestore {
             || (request.time < resource.data.openUntil
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balances', 'spent', 'balancesAt'])));
       allow delete: if signedIn() && me() == resource.data.owner;
+    }
+
+    match /stories/{storyId} {
+      allow get: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.story.days.size() <= 60;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.story.days.size() <= 60;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /trips/{tripId} {

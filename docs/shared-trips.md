@@ -71,3 +71,7 @@ Who can do what:
 ## Updating the rules
 
 When `firestore.rules` changes in this project, paste the new version into Firebase (**Firestore → Rules → Publish**) as in step 3. The app and the rules must match.
+
+## Trip stories
+
+With an account, *Share trip story* saves the story (days and places only) online and sends a short link. Anyone with that link can open that one story; nobody can browse or list stories, and only you can change it. This needs the `stories` part of [`firestore.rules`](../firestore.rules): after updating the app, paste the whole rules file into **Firestore Database → Rules** again and click **Publish**. Until then, or without an account, the story travels inside a longer link instead.

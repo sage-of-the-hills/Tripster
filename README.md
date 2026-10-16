@@ -17,12 +17,12 @@ Live app: **https://sage-of-the-hills.github.io/tripster/** (after the first dep
 | **Days** | A map for each day, a timed timeline with daylight bars, and the weather at each stop. One tap opens the whole day in Google Maps. |
 | **Weather** | Forecasts for every place, hour by hour, with a drone-flying rating (Good / Marginal / No-fly). Alerts for strong gusts, heavy snow or rain, severe cold, freezing rain and storms, and for big forecast changes. |
 | **Live conditions** | Official weather warnings (MeteoAlarm, about 38 European countries), Safe Travel alerts and road conditions (Iceland), and a northern-lights outlook for each night. |
-| **Explore** | Add any place by search. Every place links to Tripadvisor, Google Maps, Wikivoyage, Lonely Planet, Atlas Obscura, GetYourGuide and Viator, plus nearby sights from Wikipedia. *Discover* adds highlights, off-beat places and road trips. |
+| **Explore** | Places grouped by day. Each day suggests a few well-known stops along that day's route, sized to how much daylight the plan leaves free, with Tripadvisor, Google reviews and Reddit a tap away. *Discover* shows the country's highlights, off-beat places and road trips in a swipeable row, with how far each is from your plan. Add any place by search. |
 | **Bookings** | Every booking, stay, flight and car hire with a To book / Booked / Paid switch, plus a packing checklist. |
 | **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. Home shows *Trips you planned* and *Trips you were part of*: after a trip ends, only the planner keeps the full details; everyone else keeps a record (dates, places, people, final balances). |
 | **Money** | A simple Splitwise: add who paid and who it was for, see each person's share, balances and the fewest payments to settle up. Download as a spreadsheet. |
 | **Offline** | The whole app and your trips work with no signal. Instructions and links for Google Maps offline areas. |
-| **Trip story** | *Share trip story* sends a link showing only what you did and where: the days, the places and a map. No bookings, stays, addresses, costs, expenses or people. Friends can keep stories on their home page. To plan together, add people by email instead. |
+| **Trip story** | *Share trip story* sends a short link showing only what you did and where: the days, the places and a map. No bookings, stays, addresses, costs, expenses or people. Friends can keep stories on their home page. To plan together, add people by email instead. |
 
 Without accounts, trips and ticks live only on the device. Shared trips (optional) use a free Firebase project you control: see [`docs/shared-trips.md`](docs/shared-trips.md). The app otherwise only goes online to fetch weather, search places and read the public travel sources below.
 
