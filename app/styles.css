@@ -226,7 +226,7 @@ details.place>summary{font-weight:400;list-style:none;display:flex;gap:10px;alig
 .results li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .near{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:.9rem}
 /* builder and discover */
-.builder{padding-bottom:70px}
+.builder{padding-bottom:16px}
 .form input[list]{width:100%}
 .choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
 .choice button{text-align:left;border:2px solid var(--line);background:var(--surface);border-radius:14px;padding:14px;cursor:pointer;display:grid;gap:4px;color:var(--ink)}
@@ -361,3 +361,6 @@ select#b-country{height:46px;appearance:auto}
 .cb-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .cb-tick{width:26px;height:26px;flex:none;border-radius:999px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700}
 .citybtn.on .cb-tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+/* the builder's action bar sits in the page and sticks to the bottom while scrolling */
+.builder .buildbar{position:sticky;left:auto;right:auto;bottom:10px;margin-top:14px;border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px 10px 16px}

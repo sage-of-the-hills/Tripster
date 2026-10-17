@@ -1,7 +1,7 @@
 /* Tripster service worker: keeps the app working offline and, where the
    browser allows, re-checks forecasts in the background for weather alerts.
    Raise VERSION whenever any file changes so phones pick up the update. */
-const VERSION = "2.11.0";
+const VERSION = "2.12.0";
 const CACHE = "tripster-" + VERSION;
 const SHELL = [
   "./",
@@ -35,7 +35,8 @@ const SHELL = [
 importScripts("wx.js");
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: "reload" skips the browser's own HTTP cache, so an update never stores yesterday's files
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => (k.startsWith("tripster-") || k.startsWith("trip-planner-")) && k !== CACHE && k !== "tripster-state").map(k => caches.delete(k)))).then(() => self.clients.claim()));

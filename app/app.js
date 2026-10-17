@@ -1019,7 +1019,7 @@ function viewHome(){
       <span class="dot">·</span><label class="linkbtn" for="backup-in" style="cursor:pointer">Restore backup</label><input type="file" id="backup-in" accept=".json,application/json" hidden>
       <span class="dot">·</span><button class="linkbtn" data-alerts>Weather alerts: ${S.alertsOn?"on":"off"}</button>
       <p class="small muted" style="flex-basis:100%;margin:6px 0 0">Trips are saved on this device${fbConfig()?"; shared trips also sync to your group":""}. Tripster goes online only for weather, places, travel guides${fbConfig()?" and shared trips":""}.</p>
-    </footer>`;
+    <p class="small muted" style="margin:8px 0 0">Tripster ${APP_VERSION}</p></footer>`;
 }
 function createTrip(f){
   const title=f.title.value.trim(), start=f.start.value, end=f.end.value, msg=$("#nt-msg");
@@ -1354,10 +1354,14 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
+const APP_VERSION="2.12.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
-async function wvGet(params){ const u=WV+"?"+new URLSearchParams(Object.assign({format:"json",formatversion:"2",origin:"*"},params)); const r=await fetch(u); if(!r.ok) throw new Error("Wikivoyage "+r.status); return r.json(); }
+async function wvGet(params){ const u=WV+"?"+new URLSearchParams(Object.assign({format:"json",formatversion:"2",origin:"*"},params));
+  // Wikivoyage asks busy clients to slow down; wait and try again a couple of times
+  for(let i=0;;i++){ try{ const r=await fetch(u); if(r.ok){ const j=await r.json(); if(!j.error||j.error.code!=="ratelimited") return j; } else if(r.status!==429&&r.status<500) throw new Error("Wikivoyage "+r.status); }catch(e){ if(i>=2) throw e; }
+    if(i>=2) throw new Error("Wikivoyage is busy"); await new Promise(res=>setTimeout(res,1500*(i+1))); } }
 function discCache(k,v){ const key="ts.disc."+k; if(v===undefined){ const x=loadJSON(key); return x&&Date.now()-x.at<7*864e5? x.v : null; } saveJSON(key,{at:Date.now(),v}); return v; }
 
 // Wikitext helpers
@@ -1598,12 +1602,18 @@ const POPULAR=["Italy","Japan","Portugal","Spain","France","Greece","Iceland","U
 // the country's main cities: Wikivoyage's "Cities" list (travellers' pick of the nine best), else the
 // best-known cities on Wikidata
 async function wdCities(c){
-  const hit=discCache("cities."+c.q); if(hit) return hit;
-  const rows=await withTimeout(sparql(`SELECT ?item ?l ?d ?coord ?links WHERE { VALUES ?t { wd:Q515 wd:Q1549591 wd:Q5119 wd:Q1637706 wd:Q200250 } ?item wdt:P31 ?t; wdt:P17 wd:${c.q}; wdt:P625 ?coord; wikibase:sitelinks ?links; rdfs:label ?l FILTER(lang(?l)="en") OPTIONAL{ ?item schema:description ?d FILTER(lang(?d)="en") } } ORDER BY DESC(?links) LIMIT 40`),25000);
+  const hit=discCache("cities6."+c.q); if(hit) return hit;
+  // the capital, plus present-day cities that are written about in many languages
+  const rows=await withTimeout(sparql(`SELECT ?item ?l ?d ?coord ?links WHERE {
+    { wd:${c.q} wdt:P36 ?item } UNION { VALUES ?t { wd:Q515 wd:Q1549591 wd:Q5119 wd:Q1637706 wd:Q200250 } ?item wdt:P31/wdt:P279? ?t; wdt:P17 wd:${c.q}. }
+    ?item wdt:P625 ?coord; wikibase:sitelinks ?links; rdfs:label ?l FILTER(lang(?l)="en")
+    FILTER NOT EXISTS { ?item wdt:P576 ?gone } ?item wdt:P1082 ?pop. FILTER(?pop >= 20000)
+    OPTIONAL{ ?item schema:description ?d FILTER(lang(?d)="en") } } ORDER BY DESC(?links) LIMIT 60`),25000);
   const seen=new Set(), out=[];
-  rows.forEach(b=>{ const id=b.item.value.split("/").pop(); if(seen.has(id)) return; seen.add(id); const m=b.coord.value.match(/Point\(([-\d.e]+) ([-\d.e]+)\)/); if(!m) return;
-    out.push({name:b.l.value,desc:b.d?b.d.value:"",lat:+m[2],lon:+m[1],qid:id}); });
-  const v=out.slice(0,12); return v.length? discCache("cities."+c.q,v) : v;
+  rows.forEach(b=>{ const id=b.item.value.split("/").pop(), name=b.l.value; if(seen.has(id)||seen.has(name)||+b.links.value<25) return; seen.add(id); seen.add(name);
+    const m=b.coord.value.match(/Point\(([-\d.e]+) ([-\d.e]+)\)/); if(!m) return;
+    out.push({name,desc:b.d?b.d.value:"",lat:+m[2],lon:+m[1],qid:id}); });
+  const v=out.slice(0,10); return v.length? discCache("cities6."+c.q,v) : v;
 }
 function bCities(D){ const g=D&&D.guide; const list=((g&&g.cities)||[]).filter(x=>x.lat!=null); return list.length? list : (D&&D.wdCities)||[]; }
 function bCityPicker(B,c){
@@ -2245,7 +2255,11 @@ document.addEventListener("toggle", e=>{ const el=e.target; if(!(el instanceof H
   S.openDays=S.openDays||{}; S.openDays[el.dataset.daygrp]=el.open; const t=trip(); if(!el.open||!t) return;
   const d=(t.days||[]).find(x=>x.date===el.dataset.daygrp); if(d){ loadDayIdeas(t,d); loadEats(t,d); } }, true);
 if("serviceWorker" in navigator && location.protocol!=="file:"){
-  navigator.serviceWorker.register("sw.js").then(reg=>{
+  // when a new version takes over, reload once so the page and its files match
+  const hadController=!!navigator.serviceWorker.controller; let reloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(!hadController||reloaded) return; reloaded=true; location.reload(); });
+  document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") swReg().then(r=>r&&r.update().catch(()=>{})); });
+  navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(reg=>{
     S.swReady=!!navigator.serviceWorker.controller||!!reg.active;
     reg.addEventListener("updatefound",()=>{ const w=reg.installing; if(!w) return; w.addEventListener("statechange",()=>{ if(w.state==="installed"&&navigator.serviceWorker.controller) toast("App updated. It'll use the new version next time you open it."); if(w.state==="activated"){ S.swReady=true; if(S.tab==="offline"||S.screen==="home") render(); } }); });
   }).catch(()=>{});
