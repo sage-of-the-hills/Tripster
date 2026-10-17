@@ -1354,7 +1354,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.12.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.13.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -1576,8 +1576,7 @@ function bStep1(B,c,head){
     <form class="form" data-builder-form onsubmit="return false">
       <div><label for="b-country">Country</label><select id="b-country" class="field"><option value="">Choose a country</option>${(COUNTRIES||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${esc(x.name)}" ${c&&c.q===x.q?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
       ${c?"":`<div class="chips" aria-label="Popular countries">${POPULAR.filter(n=>countryByName(n)).map(n=>chip(false,`data-b-country="${esc(n)}"`,n)).join("")}</div>`}
-      <div class="two"><div><label for="b-start">Start</label><input id="b-start" type="date" value="${esc(B.start)}"></div><div><label for="b-end">End</label><input id="b-end" type="date" value="${esc(B.end)}"></div></div>
-      ${B.start&&B.end&&B.end<B.start?`<p class="small" style="color:var(--bad);margin:0">The end date is before the start date.</p>`:""}
+      ${bCalendar(B)}
       ${B.forTrip?"":`<div class="two"><div><label for="b-title">Trip name</label><input id="b-title" value="${esc(B.title)}" placeholder="${esc(c?c.name+" trip":"e.g. Japan in spring")}"></div><div><label for="b-who">Who's going</label><input id="b-who" value="${esc(B.who)}" placeholder="Names, separated by commas"></div></div>`}
     </form>
     ${c?bCityPicker(B,c):""}
@@ -1622,6 +1621,33 @@ function bCityPicker(B,c){
   return `<h3 class="bh">Which cities? <span class="small muted" style="font-weight:500;text-transform:none;letter-spacing:0">(pick any, or skip and see the whole country)</span></h3>
     ${waiting?`<p class="small muted">Finding the main cities in ${esc(c.name)}…</p>`:!list.length?`<p class="small muted">Couldn't load the cities just now. You can carry on and pick places across ${esc(c.name)}.</p>`
     :`<div class="citygrid">${list.slice(0,12).map(x=>{ const on=chosen.includes(x.name); return `<button class="citybtn ${on?"on":""}" aria-pressed="${on}" data-b-city="${esc(x.name)}"><span class="cb-top"><strong>${esc(x.name)}</strong><span class="cb-tick" aria-hidden="true">${on?"✓":"+"}</span></span>${x.desc?`<span class="small muted clamp2">${esc(cleanDesc(x.desc))}</span>`:""}</button>`; }).join("")}</div>`}`;
+}
+/* Trip dates: one calendar. Tap the first day, then the last; days before today can't be picked,
+   and once a start is chosen, neither can days before it (or more than 90 days after it). */
+const CAL_MON=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function calMonthAdd(ym,n){ const [y,m]=ym.split("-").map(Number); const d=new Date(y,m-1+n,1); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+function bCalendar(B){
+  const today=todayISO(), thisMonth=today.slice(0,7);
+  if(B.start&&B.start<today){ B.start=""; B.end=""; }
+  if(B.end&&B.start&&B.end<B.start) B.end="";
+  let view=S.calView||(B.start||today).slice(0,7); if(view<thisMonth) view=thisMonth; S.calView=view;
+  const picking=B.start&&!B.end, maxEnd=B.start?addDays(B.start,89):"";
+  const month=ym=>{ const [y,m]=ym.split("-").map(Number); const first=new Date(y,m-1,1), days=new Date(y,m,0).getDate(), lead=(first.getDay()+6)%7;
+    let cells=""; for(let i=0;i<lead;i++) cells+=`<span></span>`;
+    for(let d=1;d<=days;d++){ const iso=ym+"-"+String(d).padStart(2,"0");
+      const off=iso<today||(picking&&(iso<B.start||iso>maxEnd));
+      const cls=[iso===B.start?"start":"",iso===B.end?"end":"",B.start&&B.end&&iso>B.start&&iso<B.end?"in":"",iso===today?"today":""].filter(Boolean).join(" ");
+      cells+=`<button type="button" class="calday ${cls}" data-cal-day="${iso}" ${off?"disabled":""} aria-pressed="${iso===B.start||iso===B.end}" aria-label="${esc(fmtDay(iso,true))} ${y}">${d}</button>`; }
+    return `<div class="calmonth"><div class="calhead">${CAL_MON[m-1]} ${y}</div><div class="calgrid"><span class="dow">Mo</span><span class="dow">Tu</span><span class="dow">We</span><span class="dow">Th</span><span class="dow">Fr</span><span class="dow">Sa</span><span class="dow">Su</span>${cells}</div></div>`; };
+  const n=bDays(B);
+  const yr=iso=>" "+iso.slice(0,4);
+  const summary=!B.start? `<strong>Pick your first day</strong>` : !B.end? `<strong>${esc(fmtDay(B.start,true))+yr(B.start)}</strong> <span class="muted">→ now pick your last day</span>`
+    : `<strong>${esc(fmtDay(B.start,true))} – ${esc(fmtDay(B.end,true))+yr(B.end)}</strong> <span class="muted">· ${n} day${n===1?"":"s"}, ${n-1} night${n-1===1?"":"s"}</span>`;
+  return `<div class="cal" role="group" aria-label="Trip dates">
+    <div class="calbar"><span class="small">${summary}</span>${B.start?`<button type="button" class="linkbtn small" data-cal-clear>Clear dates</button>`:""}</div>
+    <div class="calnav"><button type="button" class="btn sm" data-cal-nav="-1" aria-label="Previous month" ${view<=thisMonth?"disabled":""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button><button type="button" class="btn sm" data-cal-nav="1" aria-label="Next month"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button></div>
+    <div class="calmonths">${month(view)}${month(calMonthAdd(view,1))}</div>
+  </div>`;
 }
 function bAreaOf(D,x){ const cs=(D&&D.guide&&D.guide.cities||[]).filter(c=>c.lat!=null); let best=null,bd=1e9; cs.forEach(c=>{ const d=kmBetween(c,x); if(d<bd){bd=d;best=c;} }); return best&&bd<70? best.name : ""; }
 function bList(B,D,tab){
@@ -1773,6 +1799,11 @@ async function builderClick(el){
   if(el.dataset.bCity){ const name=el.dataset.bCity; const c=countryByName(B.country); const x=bCities(S.bData).find(y=>y.name===name); B.cities=B.cities||[]; B.picks=B.picks||{};
     const i=B.cities.indexOf(name); if(i>=0){ B.cities.splice(i,1); if(x) delete B.picks[pickKey(x)]; } else { B.cities.push(name); if(x) B.picks[pickKey(x)]={name:x.name,lat:x.lat,lon:x.lon}; }
     S.bArea=B.cities.length?"__mine":""; bSave(); render(); return true; }
+  if(el.dataset.calDay){ const d=el.dataset.calDay;
+    if(!B.start||B.end||d<B.start){ B.start=d; B.end=""; } else B.end=d;
+    bSave(); render(); return true; }
+  if(el.dataset.calNav){ S.calView=calMonthAdd(S.calView||todayISO().slice(0,7),+el.dataset.calNav); render(); return true; }
+  if(el.hasAttribute("data-cal-clear")){ B.start=""; B.end=""; bSave(); render(); return true; }
   if(el.dataset.bInt){ const a=B.interests=B.interests||[]; const k=el.dataset.bInt; const i=a.indexOf(k); if(i>=0) a.splice(i,1); else a.push(k); bSave(); render(); return true; }
   if(el.dataset.bFood){ B.food=el.dataset.bFood; bSave(); render(); return true; }
   if(el.dataset.bPace){ B.pace=el.dataset.bPace; bSave(); render(); return true; }
