@@ -152,7 +152,7 @@ function renderHeader(){
   const top=$("#top"), t=trip();
   if(S.screen==="story"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>Tripster</span></button>${netPill()}</div>`; return; }
   if(S.screen==="record"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
-  if(S.screen==="builder"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div><h1>Plan a trip</h1><div class="trip-meta"><span>Choose a country, your style and, if you like, a famous road trip.</span></div>`; return; }
+  if(S.screen==="builder"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
   if(S.screen==="home"||!t){ top.innerHTML=`<div class="brandbar"><span class="brand">${LOGO}<span>Tripster</span></span>${netPill()}</div>`; return; }
   const n=nights(t.start,t.end);
   top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>
@@ -170,7 +170,7 @@ function keepTyping(fn){
   v.querySelectorAll('input[type="checkbox"][name]').forEach(el=>{ const k=el.name+"="+el.value; if(k in boxes) el.checked=boxes[k]; });
   if(focusId){ const el=document.getElementById(focusId); if(el){ el.focus({preventScroll:true}); try{ if(sel&&sel[0]!=null) el.setSelectionRange(sel[0],sel[1]); }catch(e){} } }
 }
-function render(){ keepTyping(renderNow); }
+function render(){ if(S._rendering){ S._again=true; return; } S._rendering=true; try{ keepTyping(renderNow); } finally{ S._rendering=false; } if(S._again){ S._again=false; render(); } }
 function renderNow(){
   renderHeader();
   const t=trip(), v=$("#view"), tabs=$("#tabs");
@@ -204,6 +204,8 @@ function viewOverview(t){
   else countdown=`<div class="count">Done</div><div class="muted">This trip has finished</div>`;
   return `
   ${t.tagline?`<p style="max-width:65ch;margin:0 0 16px">${esc(t.tagline)}</p>`:""}
+  ${!Object.keys(t.places||{}).length&&!(t.days||[]).some(d=>d.steps.length)?`<div class="card emptytrip" style="margin:0 0 14px"><h3 style="margin:0 0 4px">No places yet</h3><p class="small" style="margin:0 0 10px">Pick a few and Tripster will spread them across your ${(t.days||[]).length} days.</p><button class="btn primary" data-b-fill="${esc(t.id)}">Choose places</button></div>`:""}
+
   ${alertsCard(t,true)}${liveSummary(t)}
   <div class="grid cols-2" style="margin-bottom:14px">${peopleCard(t)}${activityCard(t)}</div>
   <div class="hero2">
@@ -227,8 +229,8 @@ function viewOverview(t){
      <div class="eyebrow">${esc(fmtDay(d.date,true))}</div><h3 style="margin:4px 0">${esc(d.title)}</h3>
      <div class="small muted">${esc(d.steps.filter(s=>!isStay(t,s.place)).map(s=>t.places[s.place]&&!t.places[s.place].waypoint?t.places[s.place].name:s.title).filter((v,i,a)=>a.indexOf(v)===i).slice(0,6).join(" · "))}</div>
      ${d.stay?`<div class="small" style="margin-top:6px">Night: ${esc((stays.find(s=>s.id===d.stay)||{}).name||d.stay)}</div>`:""}</button>`).join("")}</div>
-  <div class="section-head"><h2>Where you're sleeping</h2>${cost?`<span class="mono small muted">Stays total ${money(cost,t.currency)}</span>`:""}</div>
-  <div class="grid cols-3">${stays.map(s=>`<div class="card stripe ${statusOf("stay",s)}"><div class="spread"><h3>${esc(s.name)}</h3><span class="pill s-${statusOf("stay",s)}">${STATUS[statusOf("stay",s)]}</span></div><div class="small mono muted">${esc(fmtDay(s.checkIn,true))} → ${esc(fmtDay(s.checkOut,true))}</div></div>`).join("")}</div>
+  ${stays.length?`<div class="section-head"><h2>Where you're sleeping</h2>${cost?`<span class="mono small muted">Stays total ${money(cost,t.currency)}</span>`:""}</div>
+  <div class="grid cols-3">${stays.map(s=>`<div class="card stripe ${statusOf("stay",s)}"><div class="spread"><h3>${esc(s.name)}</h3><span class="pill s-${statusOf("stay",s)}">${STATUS[statusOf("stay",s)]}</span></div><div class="small mono muted">${esc(fmtDay(s.checkIn,true))} → ${esc(fmtDay(s.checkOut,true))}</div></div>`).join("")}</div>`:""}
   ${(t.notes||[]).length?`<div class="section-head"><h2>Good to know</h2></div><div class="grid cols-2">${t.notes.map(n=>`<div class="card"><h3>${esc(n.title)}</h3><p style="margin:0">${esc(n.body)}</p></div>`).join("")}</div>`:""}
   ${(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).length?`<div class="row" style="margin-top:14px">${t.links.filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).map(l=>`<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
   ${guideBlock(t)}
@@ -678,6 +680,7 @@ function exploreDays(t,keys,dayOf,W,today){
       <div class="placelist">${ks.map(k=>placeCard(t,k,others(k),W,today,true)).join("")}</div>
       <div class="ideas"><div class="spread"><h4 style="margin:0">Worth adding to this day</h4></div><p class="small muted" style="margin:2px 0 8px">${esc(fit.label)}</p>
       ${!I?(navigator.onLine?`<p class="small muted">Looking along your route…</p>`:`<p class="small muted">Ideas need a connection.</p>`):I.error?`<p class="small" style="color:var(--bad)">${esc(I.error)}</p>`:!I.items.length?`<p class="small muted">${fit.max<=1?"Nothing notable right on your way. This day is already well filled.":"Nothing well-known nearby that isn't already on your plan."}</p>`:`<div class="hscroll">${I.items.map(x=>ideaCard(t,x,d)).join("")}</div>`}</div>
+      ${eatBlock(t,d)}
     </details>`; };
   return `<div class="section-head"><h2>Your days</h2><span class="small muted">${keys.length} places · open a day for its places and ideas</span></div>
     <div class="daygrps">${days.map(grp).join("")}</div>
@@ -761,6 +764,61 @@ function assignIdeas(t){
     const fit=dayFit(t,d); out[d.date]={items:Object.values(best).filter(b=>b.date===d.date).sort((a,b)=>b.score-a.score).slice(0,fit.max).map(b=>Object.assign({},b.x,{ins:b.ins}))}; });
   return out;
 }
+/* Where to eat near a day's stops, from OpenStreetMap. OSM has no ratings, so "Best" means the
+   independent places nearest your stops that mappers have recorded most fully; each links to its reviews. */
+const OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.private.coffee/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+async function overpass(q){ let err; for(const u of OVERPASS){ try{ const r=await withTimeout(fetch(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}}),45000); if(!r.ok) throw new Error("Overpass "+r.status); return await r.json(); }catch(e){ err=e; } } throw err; }
+function eatPlaces(t,d){ const seen=new Set(); return d.steps.map(s=>s.place).filter(k=>t.places[k]&&!t.places[k].waypoint&&!isStay(t,k)&&!seen.has(k)&&seen.add(k)).map(k=>Object.assign({key:k},t.places[k])).slice(0,6); }
+async function loadEats(t,d){
+  const key=t.id+"|"+d.date; S.eats=S.eats||{}; if(S.eats[key]&&!S.eats[key].error) return;
+  const pts=eatPlaces(t,d); if(!pts.length) return;
+  const ck="eat1."+pts.map(p=>p.lat.toFixed(3)+","+p.lon.toFixed(3)).join(";"); const hit=discCache(ck); if(hit){ S.eats[key]={items:hit}; render(); return; }
+  if(!navigator.onLine) return; S.eats[key]={busy:true};
+  const q=`[out:json][timeout:25];(${pts.map(p=>`nwr["amenity"~"^(restaurant|cafe|fast_food|food_court)$"]["name"](around:1200,${p.lat},${p.lon});`).join("")});out center tags 400;`;
+  try{ const j=await overpass(q); const seen=new Set(); const items=[];
+    (j.elements||[]).forEach(e=>{ const g=e.tags||{}; const lat=e.lat!=null?e.lat:e.center&&e.center.lat, lon=e.lon!=null?e.lon:e.center&&e.center.lon; if(lat==null) return;
+      const name=g["name:en"]||g.name; const id=e.type+e.id; if(seen.has(id)) return; seen.add(id);
+      let near=null, km=1e9; pts.forEach(p=>{ const k=kmBetween(p,{lat,lon}); if(k<km){ km=k; near=p.name; } });
+      const cuisine=(g.cuisine||"").split(";").map(x=>x.trim().replace(/_/g," ")).filter(Boolean);
+      const veg=g["diet:vegetarian"]||(cuisine.includes("vegetarian")?"yes":""), vgn=g["diet:vegan"]||(cuisine.includes("vegan")?"yes":"");
+      const doc=(g.website||g["contact:website"]?2:0)+(g.opening_hours?1:0)+(cuisine.length?1:0)+(g.phone||g["contact:phone"]?.5:0)+(g.wikidata?3:0)+(g.amenity==="restaurant"?1.5:g.amenity==="cafe"?.5:0);
+      items.push({name,lat:+lat.toFixed(5),lon:+lon.toFixed(5),near,km:+km.toFixed(2),cuisine:cuisine.slice(0,3),veg,vgn,chain:!!(g.brand||g["brand:wikidata"]),amenity:g.amenity,doc}); });
+    const keep=items.sort((a,b)=>(b.doc-a.doc)||(a.km-b.km)).slice(0,120);
+    discCache(ck,keep); S.eats[key]={items:keep}; }
+  catch(e){ S.eats[key]={error:"Couldn't reach OpenStreetMap just now. Open the day again in a minute."}; }
+  render();
+}
+function eatLabel(x){ if(x.vgn==="only") return ["Fully vegan","full"]; if(x.veg==="only") return ["Fully vegetarian","full"];
+  if(x.vgn==="yes") return ["Vegan options","opt"]; if(x.veg==="yes") return ["Vegetarian options","opt"]; return null; }
+function eatLists(items){
+  const score=x=>x.doc*1.2-x.km*2.5-(x.chain?4:0);
+  const best=items.filter(x=>!x.chain&&x.amenity!=="fast_food").sort((a,b)=>score(b)-score(a)).slice(0,5);
+  const vegR=x=>(x.veg==="only"||x.vgn==="only"?6:0)+(x.vgn==="yes"?1:0)+score(x);
+  const veg=items.filter(x=>x.veg==="only"||x.veg==="yes"||x.vgn==="only"||x.vgn==="yes").sort((a,b)=>vegR(b)-vegR(a)).slice(0,5);
+  const vgnR=x=>(x.vgn==="only"?6:0)+score(x);
+  const vegan=items.filter(x=>x.vgn==="only"||x.vgn==="yes").sort((a,b)=>vgnR(b)-vgnR(a)).slice(0,5);
+  return {best,veg,vegan};
+}
+function eatBlock(t,d){
+  if(!eatPlaces(t,d).length) return "";
+  const key=t.id+"|"+d.date; const E=S.eats&&S.eats[key]; S.eatTab=S.eatTab||{};
+  const tab=S.eatTab[key]||(t.food==="vegan"?"vegan":t.food==="vegetarian"?"veg":"best");
+  const L=E&&E.items?eatLists(E.items):null;
+  const tabs=[["best","Best nearby"],["veg","Vegetarian"],["vegan","Vegan"]];
+  const list=L?L[tab]:[];
+  const walk=km=>{ const m=Math.round(km*1.3/4.8*60); return m<2?"next door":m<=30?`${m} min walk`:`${Math.round(km*1.3)} km away`; };
+  const p=eatPlaces(t,d)[0];
+  return `<div class="eats"><div class="spread"><h4 style="margin:0">Where to eat</h4><span class="small muted">Near this day's stops</span></div>
+    <div class="seg wide" role="group" aria-label="Food" style="margin:8px 0">${tabs.map(([k,l])=>`<button data-eat-tab="${k}" data-eat-key="${esc(key)}" aria-pressed="${tab===k}">${k!=="best"?`<i class="dot ${k}"></i>`:""}${l}${L?` <span class="muted">${L[k].length}</span>`:""}</button>`).join("")}</div>
+    ${!E?(navigator.onLine?`<p class="small muted">Finding places to eat…</p>`:`<p class="small muted">Restaurant ideas need a connection.</p>`):E.busy?`<p class="small muted">Finding places to eat…</p>`:E.error?`<p class="small" style="color:var(--bad)">${esc(E.error)}</p>`
+     :!list.length?`<p class="small muted">${tab==="best"?"No places to eat recorded near this day's stops.":`No ${tab==="vegan"?"vegan":"vegetarian"} places recorded near this day's stops yet.`} <a href="https://www.happycow.net/searchmap?s=3&amp;lat=${p.lat}&amp;lng=${p.lon}" target="_blank" rel="noopener">See HappyCow</a></p>`
+     :`<ol class="eatlist">${list.map(x=>{ const lb=eatLabel(x); const q=encodeURIComponent(x.name+(t.region?" "+t.region:""));
+        return `<li><div class="spread" style="align-items:baseline"><strong>${esc(x.name)}</strong><span class="small muted" style="flex:none">${esc(walk(x.km))}</span></div>
+        <span class="small muted">${esc([x.cuisine.join(", "),x.amenity==="cafe"?"café":"","near "+x.near].filter(Boolean).join(" · "))}</span>
+        <span class="eatmeta">${lb?`<span class="diet ${lb[1]}">${esc(lb[0])}</span>`:""}<a href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${x.lat},${x.lon},17z" target="_blank" rel="noopener">Google</a><a href="https://www.tripadvisor.com/Search?q=${q}" target="_blank" rel="noopener">Tripadvisor</a><a href="https://www.happycow.net/searchmap?s=3&amp;lat=${x.lat}&amp;lng=${x.lon}" target="_blank" rel="noopener">HappyCow</a></span></li>`; }).join("")}</ol>
+       <p class="small muted" style="margin:6px 0 0">From OpenStreetMap. ${tab==="best"?"Ranked by distance and how fully each place is recorded, not by ratings; chains left out.":"Diet labels are added by mappers and can be out of date."} Check reviews and opening hours before you go.</p>`}
+  </div>`;
+}
 function reviewLinks(t,x){ const q=encodeURIComponent(x.name+(t.region?" "+t.region:""));
   return `<span class="idea-links"><a href="https://www.tripadvisor.com/Search?q=${q}" target="_blank" rel="noopener">Tripadvisor</a><a href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${x.lat},${x.lon},14z" target="_blank" rel="noopener">Google reviews</a><a href="https://www.reddit.com/search/?q=${q}" target="_blank" rel="noopener">Reddit</a></span>`; }
 function noImg(x){ return `<div class="noimg"><span>${esc((x.name||"?").slice(0,1))}</span></div>`; }
@@ -784,6 +842,7 @@ function insertIntoDay(t,d,key,name){
 function newPlaceKey(t,name){ let base=slug(name).replace(/-/g,"").toUpperCase().slice(0,12)||"PLACE", key=base, i=2; while(t.places[key]) key=base+(i++); return key; }
 function ideasClick(el){
   const t=trip(); if(!t) return false;
+  if(el.dataset.eatTab){ S.eatTab=S.eatTab||{}; S.eatTab[el.dataset.eatKey]=el.dataset.eatTab; const y=window.scrollY; render(); window.scrollTo(0,y); return true; }
   if(el.dataset.ideaAdd){ const d=(t.days||[]).find(x=>x.date===el.dataset.ideaDay); const I=S.dayIdeas&&Object.values(S.dayIdeas).find(v=>v.items&&v.items.some(x=>x.id===el.dataset.ideaAdd)); const x=I&&I.items.find(y=>y.id===el.dataset.ideaAdd); if(!d||!x) return true;
     const key=newPlaceKey(t,x.name); t.places[key]={name:x.name,lat:x.lat,lon:x.lon,area:t.region||"",added:true};
     insertIntoDay(t,d,key,x.name); persistTrip(t); const y=window.scrollY; render(); window.scrollTo(0,y); ensureWx(t,true); toast(`Added ${x.name} to ${fmtDay(d.date,true)}`); return true; }
@@ -908,19 +967,19 @@ Rules:
 - Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".`;
 function planBlock(){
   return `<div class="grid cols-3 plan">
-   <div class="card"><div class="stepno">1</div><h3>Ask an AI assistant to plan it</h3>
-     <p class="small">Copy this prompt into Claude, ChatGPT or Gemini, fill in the brackets, and it replies with a trip file. Already planned a trip with Claude? Just ask it for "a Tripster trip file".</p>
-     <details><summary class="small" style="cursor:pointer;font-weight:700">Show the prompt</summary><pre class="code">${esc(PROMPT)}</pre></details>
-     <div class="row"><button class="btn primary" data-copy-prompt>Copy prompt</button><button class="btn" data-save="template">Example file</button></div></div>
-   <div class="card"><div class="stepno">2</div><h3>Add the file here</h3>
+   <div class="card plan-main"><div class="eyebrow" style="color:var(--accent)">Recommended</div><h3>Build it with suggestions</h3>
+     <p class="small">Pick a country and dates, choose from the places most people recommend, and Tripster lays out your days, with places to eat that suit you.</p>
+     <div class="row"><button class="btn primary" data-open-builder>Start planning</button></div>
+     <p class="small muted" style="margin:0">Ideas come from Wikivoyage (written by travellers), Wikidata and OpenStreetMap. Every place links to Tripadvisor, Google and Reddit reviews.</p></div>
+   <div class="card"><div class="eyebrow">Or</div><h3>Upload a trip file</h3>
      <p class="small">Save the reply as a file ending in <span class="mono">.trip.json</span> and upload it, or paste the text straight in. Uploading a file with the same trip id updates that trip.</p>
-     <div class="row"><label class="btn primary" for="file-in" style="cursor:pointer">Upload trip file</label><input type="file" id="file-in" accept=".json,application/json,text/plain" hidden><button class="btn" data-toggle-paste>Paste text</button></div>
+     <div class="row"><label class="btn" for="file-in" style="cursor:pointer">Upload trip file</label><input type="file" id="file-in" accept=".json,application/json,text/plain" hidden><button class="btn" data-toggle-paste>Paste text</button></div>
      <div id="paste-box" hidden><label for="paste-in" class="small muted">Paste the trip file text</label><textarea id="paste-in" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button class="btn primary" data-load-paste>Load trip</button></div></div>
      <p id="load-msg" class="small" role="status" style="color:var(--bad)"></p></div>
-   <div class="card"><div class="stepno">or</div><h3>Build it here</h3>
-     <p class="small">Pick a country and your dates, then choose <strong>well-known highlights</strong> or <strong>off-the-beaten-path</strong> places, or follow a <strong>famous road trip</strong>. Tripster also shows how to get around the country.</p>
-     <div class="row"><button class="btn primary" data-open-builder>Open the trip builder</button></div>
-     <p class="small muted" style="margin:0">Ideas come from Wikivoyage (written by travellers) and Wikidata. Every place also links to Tripadvisor and Google Maps reviews.</p></div>
+   <div class="card"><div class="eyebrow">Or</div><h3>Ask an AI assistant to plan it</h3>
+     <p class="small">Copy this prompt into Claude, ChatGPT or Gemini, fill in the brackets, and it replies with a trip file. Already planned a trip with Claude? Just ask it for "a Tripster trip file".</p>
+     <details><summary class="small" style="cursor:pointer;font-weight:700">Show the prompt</summary><pre class="code">${esc(PROMPT)}</pre></details>
+     <div class="row"><button class="btn" data-copy-prompt>Copy prompt</button><button class="btn" data-save="template">Example file</button></div></div>
   </div>
   <details class="card" style="margin-top:14px"><summary>How trip files work</summary>
     <p>A trip file is a small text file (JSON) that lists a trip's places, stays, travel, bookings and day plans. Anyone with the app link can make one: with an AI assistant using the prompt above, or by editing the example file in any text editor.</p>
@@ -1362,24 +1421,33 @@ function safeHTML(html){ // keep headings, paragraphs and lists as plain text st
 }
 
 // Wikidata sights. Each type is its own small query so big countries stay fast.
-const SIGHT_TYPES=[["Q9259","World Heritage Site","heritage"],["Q34038","waterfall","nature"],["Q35666","glacier","nature"],["Q8072","volcano","nature"],["Q150784","canyon","nature"],["Q35509","cave","nature"],["Q177380","hot spring","nature"],["Q40080","beach","nature"],["Q46169","national park","nature"],["Q23413","castle","heritage"],["Q16560","palace","heritage"],["Q839954","archaeological site","heritage"],["Q6017969","viewpoint","nature"],["Q45776","fjord","nature"],["Q39715","lighthouse","heritage"],["Q23397","lake","nature"],["Q2977","cathedral","heritage"]];
+const SIGHT_TYPES=[["Q9259","World Heritage Site","heritage"],["Q34038","waterfall","nature"],["Q35666","glacier","nature"],["Q8072","volcano","nature"],["Q150784","canyon","nature"],["Q35509","cave","nature"],["Q177380","hot spring","nature"],["Q40080","beach","nature"],["Q46169","national park","nature"],["Q23413","castle","heritage"],["Q16560","palace","heritage"],["Q839954","archaeological site","heritage"],["Q6017969","viewpoint","nature"],["Q45776","fjord","nature"],["Q39715","lighthouse","heritage"],["Q23397","lake","nature"],["Q2977","cathedral","heritage"],
+  ["Q33506","museum","culture"],["Q207694","art museum","culture"],["Q32815","mosque","culture"],["Q44539","temple","culture"],["Q16970","church","culture"],["Q570116","tourist attraction","culture"],
+  ["Q11303","skyscraper","modern"],["Q12518","tower","modern"],["Q1440300","observation tower","modern"],["Q11315","shopping mall","modern"],["Q203763","artificial island","modern"],["Q2416723","theme park","modern"],["Q194195","amusement park","modern"],
+  ["Q1785071","fort","heritage"],["Q57821","fortification","heritage"],["Q162875","mausoleum","heritage"],["Q44613","monastery","heritage"],["Q4989906","monument","heritage"],["Q2065736","cultural landscape","heritage"],
+  ["Q8514","desert","nature"],["Q43742","oasis","nature"],["Q187971","wadi","nature"],["Q23442","island","nature"],["Q22698","park","nature"],["Q167346","botanical garden","nature"],["Q8502","mountain","nature"]];
 async function sparql(q){ const r=await fetch(WD+"?format=json&query="+encodeURIComponent(q),{headers:{Accept:"application/sparql-results+json"}}); if(!r.ok) throw new Error("Wikidata "+r.status); return (await r.json()).results.bindings; }
 async function countrySights(c){
-  const hit=discCache("sights."+c.q); if(hit) return hit;
+  const hit=discCache("sights5."+c.q); if(hit) return hit;
   const all={}; const queue=SIGHT_TYPES.slice();
   const one=async([qid,label,group])=>{
     const cls = qid==="Q9259"? `?item wdt:P1435 wd:Q9259` : `?item wdt:P31 wd:${qid}`;
-    const q=`SELECT ?item ?links ?coord ?img WHERE { ${cls}; wdt:P17 wd:${c.q}; wdt:P625 ?coord; wikibase:sitelinks ?links. OPTIONAL{?item wdt:P18 ?img} } LIMIT 500`;
+    const q=`SELECT ?item ?links ?coord ?img WHERE { ${cls}; wdt:P17 wd:${c.q}; wdt:P625 ?coord; wikibase:sitelinks ?links. FILTER(?links >= 2) FILTER NOT EXISTS { ?item wdt:P17 ?other. FILTER(?other != wd:${c.q}) } OPTIONAL{?item wdt:P18 ?img} } ORDER BY DESC(?links) LIMIT 300`;
     try{ const rows=await Promise.race([sparql(q), new Promise((_,rej)=>setTimeout(()=>rej(new Error("slow")),25000))]);
       rows.forEach(b=>{ const id=b.item.value.split("/").pop(); const m=(b.coord.value.match(/Point\(([-\d.e]+) ([-\d.e]+)\)/)||[]);
         if(!m[1]) return; const prev=all[id];
         const row={id,links:+b.links.value,lat:+m[2],lon:+m[1],img:b.img?b.img.value:"",type:label,group,whs:qid==="Q9259"||(prev&&prev.whs)};
         if(!prev||qid!=="Q9259") all[id]=Object.assign({},prev||{},row,{whs:row.whs}); }); }catch(e){}
   };
-  const workers=Array.from({length:4},async()=>{ while(queue.length) await one(queue.shift()); });
+  const workers=Array.from({length:6},async()=>{ while(queue.length) await one(queue.shift()); });
   await Promise.all(workers);
   const list=Object.values(all);
-  const famous=list.filter(x=>x.links>=15||x.whs).sort((a,b)=>(b.whs-a.whs)||(b.links-a.links)).slice(0,30);
+  // how much each kind of place matters to a visitor: many office towers and minor peaks have lots of
+  // Wikipedia pages without being somewhere people go
+  const W={skyscraper:.3,tower:.45,"observation tower":.9,mountain:.55,church:.6,island:.6,park:.6,fortification:.7,monument:.7,lake:.8,"shopping mall":.8,museum:1.25,"art museum":1.3,mosque:1.2,"tourist attraction":1.2,"national park":1.2,waterfall:1.1,"theme park":1};
+  // world-famous places (60+ language editions) count in full whatever their type
+  const score=x=>(x.whs?10+x.links*.5:0)+(x.links>=60? x.links : x.links*(W[x.type]!=null?W[x.type]:1));
+  const famous=list.filter(x=>(x.links>=15||x.whs)&&score(x)>=14).sort((a,b)=>score(b)-score(a)).slice(0,30);
   const offbeat=list.filter(x=>x.img&&x.links>=2&&x.links<=12&&!x.whs).sort((a,b)=>b.links-a.links).slice(0,36);
   const ids=[...new Set([...famous,...offbeat].map(x=>x.id))];
   const names={};
@@ -1388,7 +1456,7 @@ async function countrySights(c){
       rows.forEach(b=>{ const id=b.item.value.split("/").pop(); names[id]={name:b.l.value,desc:b.d?b.d.value:"",wiki:b.wiki?decodeURIComponent(b.wiki.value.split("/wiki/")[1]).replace(/_/g," "):""}; }); }catch(e){} }
   const fin=x=>Object.assign({},x,names[x.id]||{}); const ok=x=>x.name&&!/^Q\d+$/.test(x.name);
   const v={famous:famous.map(fin).filter(ok),offbeat:offbeat.map(fin).filter(ok)};
-  return (v.famous.length||v.offbeat.length)? discCache("sights."+c.q,v) : v;
+  return (v.famous.length||v.offbeat.length)? discCache("sights5."+c.q,v) : v;
 }
 function thumb(img,w){ if(!img) return ""; return img.replace(/^http:/,"https:")+(img.includes("?")?"&":"?")+"width="+(w||320); }
 
@@ -1473,46 +1541,141 @@ function suggestionList(B,data){
   return s.offbeat.map(x=>({name:x.name,desc:x.desc||x.type,lat:x.lat,lon:x.lon,img:x.img,kind:x.type,qid:x.id,wiki:x.wiki}));
 }
 function pickKey(x){ return slug(x.name)+"@"+(+x.lat).toFixed(2); }
+/* The trip builder, in three steps: 1 basics, 2 pick places, 3 arrange the days, then create. */
+const PACE={relaxed:[2,"1–2 a day"],balanced:[3,"2–3 a day"],packed:[4,"3–4 a day"]};
+const INTERESTS={
+  "History and culture":/world heritage|castle|palace|archaeolog|cathedral|lighthouse|museum|mosque|church|temple|fort|mausoleum|monument|monastery|cultural|attraction/i,
+  "Modern sights":/skyscraper|tower|shopping|theme park|amusement|artificial island/i,
+  "Nature":/waterfall|glacier|volcano|canyon|cave|hot spring|national park|viewpoint|fjord|lake|desert|oasis|wadi|island|park|garden|mountain/i,
+  "Beaches":/beach/i,
+  "Towns and cities":/^(city|highlight)$/i};
+function bDays(B){ return B.start&&B.end&&B.end>=B.start? Math.round((dateObj(B.end)-dateObj(B.start))/864e5)+1 : 0; }
+function bPer(B){ return (PACE[B.pace||"balanced"]||PACE.balanced)[0]; }
+function bFits(B,x){ const ins=B.interests||[]; return ins.some(k=>INTERESTS[k]&&INTERESTS[k].test(x.kind||"")); }
 function viewBuilder(){
   const B=bState(); const c=countryByName(B.country); const D=S.bData&&c&&S.bData.q===c.q? S.bData : null;
   if(c&&!D) setTimeout(()=>bLoad(c),0);
-  const picks=Object.values(B.picks||{});
-  const list=D&&!D.busy? suggestionList(B,D) : [];
-  const trips=D&&D.trips||{road:[],other:[]};
-  const it=S.bItin;
-  return `<div class="builder">
-   <div class="card"><h2 style="margin-bottom:10px">1. Where and when</h2>
+  const step=S.bStep||1;
+  const head=(n,title,sub)=>`<div class="spread" style="margin-bottom:4px"><span class="eyebrow">Step ${n} of 3</span>${n>1?`<button class="linkbtn" data-b-step="${n-1}">Back</button>`:""}</div><h2 style="margin:0 0 4px">${title}</h2><p class="small muted" style="margin:0 0 14px">${sub}</p>`;
+  if(step===1) return bStep1(B,c,head);
+  if(!c){ S.bStep=1; return bStep1(B,c,head); }
+  if(step===2) return bStep2(B,c,D,head);
+  return bStep3(B,c,D,head);
+}
+function chip(on,attr,label,extra){ return `<button class="chipbtn ${on?"on":""} ${extra||""}" aria-pressed="${on}" ${attr}>${esc(label)}</button>`; }
+function bStep1(B,c,head){
+  const n=bDays(B), ok=c&&n>0&&n<=90;
+  return `<div class="builder"><div class="card">${head(1,B.forTrip?"Choose places for "+esc(B.title||"your trip"):"Plan a trip","Tell us the basics. Next you'll pick the places you'd like to see.")}
     <form class="form" data-builder-form onsubmit="return false">
-      <div><label for="b-country">Country</label><input id="b-country" list="b-countries" value="${esc(B.country)}" placeholder="Start typing, e.g. Iceland" autocomplete="off"><datalist id="b-countries">${(COUNTRIES||[]).map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist></div>
-      <div><label for="b-title">Trip name</label><input id="b-title" value="${esc(B.title)}" placeholder="${esc(c?c.name+" trip":"e.g. Japan in spring")}"></div>
+      <div><label for="b-country">Where</label><input id="b-country" list="b-countries" value="${esc(B.country)}" placeholder="Start typing, e.g. Iceland" autocomplete="off"><datalist id="b-countries">${(COUNTRIES||[]).map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist></div>
+      ${B.country&&!c?`<p class="small" style="color:var(--bad);margin:0">Pick a country from the list so Tripster can find places.</p>`:""}
       <div class="two"><div><label for="b-start">Start</label><input id="b-start" type="date" value="${esc(B.start)}"></div><div><label for="b-end">End</label><input id="b-end" type="date" value="${esc(B.end)}"></div></div>
-      <div><label for="b-who">Who's going</label><input id="b-who" value="${esc(B.who)}" placeholder="Names, separated by commas"></div>
+      ${B.start&&B.end&&B.end<B.start?`<p class="small" style="color:var(--bad);margin:0">The end date is before the start date.</p>`:""}
+      ${B.forTrip?"":`<div class="two"><div><label for="b-title">Trip name</label><input id="b-title" value="${esc(B.title)}" placeholder="${esc(c?c.name+" trip":"e.g. Japan in spring")}"></div><div><label for="b-who">Who's going</label><input id="b-who" value="${esc(B.who)}" placeholder="Names, separated by commas"></div></div>`}
     </form>
-    ${B.country&&!c?`<p class="small" style="color:var(--bad)">Pick a country from the list so Tripster can find places.</p>`:""}
-   </div>
-   ${c?`<div class="card" style="margin-top:14px"><h2 style="margin-bottom:10px">2. What kind of trip?</h2>
-    <div class="choice" role="radiogroup" aria-label="Trip style">
-      <button role="radio" aria-checked="${B.style==="famous"}" data-b-style="famous"><strong>Well-known highlights</strong><span>The places most visitors come for: famous towns, World Heritage sites and the best-known sights.</span></button>
-      <button role="radio" aria-checked="${B.style==="offbeat"}" data-b-style="offbeat"><strong>Off the beaten path</strong><span>Beautiful spots with far fewer visitors: lesser-known waterfalls, lakes, canyons, caves, beaches and old sites.</span></button>
+    <h3 class="bh">What kind of trip</h3>
+    <div class="choice three" role="radiogroup" aria-label="Trip style">
+      ${[["famous","The classics","First visit: the places most people come for"],["offbeat","Hidden gems","Beautiful places with fewer crowds"],["mix","A mix","Some of both"]].map(([k,l,d])=>`<button role="radio" aria-checked="${(B.style||"famous")===k}" data-b-style="${k}"><strong>${l}</strong><span>${d}</span></button>`).join("")}
     </div>
-    <label class="switch"><input type="checkbox" id="b-road" ${B.road?"checked":""}><span><strong>Make it a road trip</strong><br><span class="small muted">See famous road trips in ${esc(c.name)} and build the trip along one.</span></span></label>
-   </div>`:""}
-   ${c&&D&&D.busy?`<div class="empty" style="margin-top:14px">Finding places in ${esc(c.name)}… this takes a few seconds the first time.</div>`:""}
-   ${c&&D&&D.error?`<div class="empty" style="margin-top:14px">${esc(D.error)} <button class="linkbtn" data-b-retry>Try again</button></div>`:""}
-   ${c&&D&&!D.busy&&!D.error?`
-   ${B.road?`<div class="section-head"><h2>3. Famous road trips in ${esc(c.name)}</h2><span class="small muted">Written by travellers on Wikivoyage</span></div>
-     ${trips.road.length?`<div class="grid cols-2">${trips.road.map(x=>itinCard(x,B)).join("")}</div>`:`<div class="card"><p style="margin:0">No traveller-written road trips for ${esc(c.name)} yet.${(trips.scenic||[]).length?" See the well-known scenic routes below.":""} Pick highlights and Tripster strings them into a route in driving order.</p></div>`}
-     ${(trips.scenic||[]).length?`<div class="section-head"><h3>Other well-known scenic routes</h3></div><div class="grid cols-2">${trips.scenic.slice(0,8).map(scenicCard).join("")}</div>`:""}
-     ${trips.other.length?`<details class="card" style="margin-top:10px"><summary>${trips.other.length} more itineraries (train, walking, cycling, boat)</summary><div class="grid cols-2" style="margin-top:10px">${trips.other.map(x=>itinCard(x,B)).join("")}</div></details>`:""}
-     ${it?itinDetail(it,B):""}`:""}
-   <div class="section-head"><h2>${B.road?"4":"3"}. ${B.style==="famous"?"Well-known highlights":"Off the beaten path"} in ${esc(c.name)}</h2><span class="small muted">${picks.length} picked</span></div>
-   ${list.length?`<div class="sugs">${list.map(x=>sugCard(x,B)).join("")}</div>`:`<div class="empty">${B.style==="offbeat"?"Not many lesser-known spots are recorded for this country yet. Try Well-known highlights.":"No places found."}</div>`}
-   <div class="section-head"><h2>Getting around ${esc(c.name)}</h2></div>
-   <div class="card guide">${D.guide&&D.guide.getAround? D.guide.getAround : `<p class="muted">No travel guide found.</p>`}
-     <p class="small muted" style="margin-top:12px">From the Wikivoyage guide to ${esc(c.name)} (travellers' guide, CC BY-SA). ${srcLink("Read the full guide","https://en.wikivoyage.org/wiki/"+encodeURIComponent(D.guide&&D.guide.page||c.wv))}</p></div>
-   `:""}
-   <div class="buildbar"><span class="small"><strong>${picks.length+(B.itinPick?(B.itinPick.stops||[]).length:0)}</strong> places${B.itinPick?` · along ${esc(B.itinPick.title)}`:""}</span><button class="btn primary" data-b-create ${c&&B.start&&B.end?"":"disabled"}>Create trip</button></div>
+    <h3 class="bh">You like <span class="small muted" style="font-weight:500">(optional)</span></h3>
+    <div class="chips">${Object.keys(INTERESTS).map(k=>chip((B.interests||[]).includes(k),`data-b-int="${esc(k)}"`,k)).join("")}</div>
+    <h3 class="bh">Food</h3>
+    <div class="chips">${[["vegetarian","Vegetarian"],["vegan","Vegan"],["any","Anything"]].map(([k,l])=>chip((B.food||"any")===k,`data-b-food="${k}"`,l,"food")).join("")}</div>
+    <p class="small muted" style="margin:6px 0 0">Used for the restaurant ideas in each day.</p>
+    <h3 class="bh">Pace</h3>
+    <div class="seg wide" role="group" aria-label="Pace">${Object.entries(PACE).map(([k,[,l]])=>`<button data-b-pace="${k}" aria-pressed="${(B.pace||"balanced")===k}">${l}</button>`).join("")}</div>
+    ${c?`<label class="switch" style="margin-top:14px"><input type="checkbox" id="b-road" ${B.road?"checked":""}><span><strong>Make it a road trip</strong><br><span class="small muted">See famous road trips in ${esc(c.name)} and build the trip along one.</span></span></label>`:""}
+  </div>
+  <div class="buildbar"><span class="small">${n?`<strong>${n}</strong> day${n===1?"":"s"}${c?" in "+esc(c.name):""}`:"Add a country and dates"}</span><button class="btn primary" data-b-step="2" ${ok?"":"disabled"}>Show me places</button></div>
+  ${B.forTrip?"":`<p class="small muted" style="text-align:center">Already have a plan? <button class="linkbtn" data-home>Upload a trip file on the home page</button></p>`}
   </div>`;
+}
+function bAreaOf(D,x){ const cs=(D&&D.guide&&D.guide.cities||[]).filter(c=>c.lat!=null); let best=null,bd=1e9; cs.forEach(c=>{ const d=kmBetween(c,x); if(d<bd){bd=d;best=c;} }); return best&&bd<70? best.name : ""; }
+function bList(B,D,tab){
+  const list=suggestionList({style:tab},D).filter(x=>x.lat!=null);
+  // sights first (what you like, then best known), towns and cities after them
+  list.forEach((x,i)=>{ x.area=x.area||bAreaOf(D,x); x._fit=bFits(B,x); x._i=i; x._town=/^(city|highlight)$/i.test(x.kind||"")?1:0; x.desc=cleanDesc(x.desc); });
+  return list.sort((a,b)=>(b._fit-a._fit)||(a._town-b._town)||(a._i-b._i));
+}
+function bStep2(B,c,D,head){
+  const n=bDays(B), picks=Object.values(B.picks||{}), per=bPer(B);
+  const tab=S.bTab||((B.style==="offbeat")?"offbeat":"famous");
+  const tabs=[["famous","Must-see"],["offbeat","Hidden gems"]].concat(B.road?[["road","Road trips"]]:[]);
+  let body="";
+  if(!D||D.busy) body=`<div class="empty">Finding the most recommended places in ${esc(c.name)}… the first time this can take up to a minute.</div>`;
+  else if(D.error) body=`<div class="empty">${esc(D.error)} <button class="linkbtn" data-b-retry>Try again</button></div>`;
+  else if(tab==="road"){ const trips=D.trips||{road:[],other:[],scenic:[]}; const it=S.bItin;
+    body=`${trips.road.length?`<div class="grid cols-2">${trips.road.map(x=>itinCard(x,B)).join("")}</div>`:`<div class="card"><p style="margin:0">No traveller-written road trips for ${esc(c.name)} yet.</p></div>`}
+     ${(trips.scenic||[]).length?`<div class="section-head"><h3>Other well-known scenic routes</h3></div><div class="grid cols-2">${trips.scenic.slice(0,8).map(scenicCard).join("")}</div>`:""}
+     ${it?itinDetail(it,B):""}`; }
+  else { const all=bList(B,D,tab); const areas={}; all.forEach(x=>{ if(x.area) areas[x.area]=(areas[x.area]||0)+1; });
+    const top=Object.entries(areas).sort((a,b)=>b[1]-a[1]).slice(0,7).map(a=>a[0]); const area=top.includes(S.bArea)?S.bArea:"";
+    const list=all.filter(x=>!area||x.area===area);
+    body=`${top.length>1?`<div class="chips scrollx">${chip(!area,`data-b-area=""`,"All areas")}${top.map(a=>chip(area===a,`data-b-area="${esc(a)}"`,a)).join("")}</div>`:""}
+      ${list.length?`<div class="picks">${list.slice(0,40).map(x=>pickRow(x,B,c)).join("")}</div>`:`<div class="empty">${tab==="offbeat"?"Not many lesser-known places are recorded for this country yet. Try Must-see.":"No places found."}</div>`}`; }
+  const nPick=picks.length+(B.itinPick?(B.itinPick.stops||[]).length:0), need=Math.ceil(nPick/per);
+  return `<div class="builder"><div class="card">${head(2,"What would you like to see?",`The places most recommended in ${esc(c.name)}${(B.interests||[]).length?", with what you like first":""}. Add as many as you want.`)}
+    <div class="seg wide" role="group" aria-label="Kind of place">${tabs.map(([k,l])=>`<button data-b-tab="${k}" aria-pressed="${tab===k}">${l}</button>`).join("")}</div></div>
+    <div style="margin-top:12px">${body}</div>
+    ${D&&D.guide&&D.guide.getAround?`<details class="card guide" style="margin-top:14px"><summary>Getting around ${esc(c.name)}</summary>${D.guide.getAround}<p class="small muted">From Wikivoyage (CC BY-SA).</p></details>`:""}
+    <div class="buildbar"><span class="small"><strong>${nPick} place${nPick===1?"":"s"} picked</strong>${nPick?`<br><span class="muted">About ${Math.min(need,n)} of your ${n} days${B.itinPick?" · along "+esc(B.itinPick.title):""}</span>`:`<br><span class="muted">Pick at least one to plan your days</span>`}</span><button class="btn primary" data-b-step="3" ${nPick?"":"disabled"}>Plan my days</button></div>
+  </div>`;
+}
+function pickRow(x,B,c){ const k=pickKey(x), on=!!(B.picks&&B.picks[k]);
+  return `<div class="pick ${on?"on":""}">${x.img?`<img loading="lazy" alt="" src="${esc(thumb(x.img,200))}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'noimg'}))">`:noImg(x)}
+    <div class="pick-b"><span class="eyebrow">${esc(x.kind||"")}${x.area?" · "+esc(x.area):""}${x._fit?` · <span style="color:var(--accent)">you like this</span>`:""}</span><strong>${esc(x.name)}</strong>
+    ${x.desc&&x.desc.toLowerCase()!==(x.kind||"").toLowerCase()?`<span class="small muted clamp2">${esc(x.desc)}</span>`:""}${reviewLinks({region:c.name},x)}</div>
+    <button class="btn addbtn ${on?"primary":""}" aria-pressed="${on}" aria-label="${on?"Remove "+esc(x.name):"Add "+esc(x.name)}" data-b-pick="${esc(k)}" data-b-name="${esc(x.name)}" data-b-lat="${x.lat}" data-b-lon="${x.lon}">${on?"✓":"+"}</button></div>`;
+}
+// Arrange the picks into days: nearest-neighbour order (or along the road trip), filled up to the pace,
+// starting a new day when the next place is a long way from the day's first stop.
+function cleanDesc(v){ return String(v||"").replace(/^\s*\([^)]*\)\s*[–—-]?\s*/,"").replace(/^./,c=>c.toUpperCase()); }
+function bArrange(B){
+  const n=bDays(B), per=bPer(B);
+  const route=(B.itinPick&&B.itinPick.stops||[]).map(s=>({name:s.name,lat:s.lat,lon:s.lon,route:true}));
+  const picks=Object.entries(B.picks||{}).map(([k,p])=>Object.assign({k},p));
+  let seq; if(route.length){ seq=route.map((r,i)=>Object.assign({k:"route"+i},r)); picks.forEach(p=>{ let bi=0,bd=1e18; seq.forEach((r,i)=>{ const d=kmBetween(r,p); if(d<bd){bd=d;bi=i;} }); seq.splice(bi+1,0,p); }); }
+  else seq=orderByNearest(picks);
+  const cap=Math.max(per,Math.ceil(seq.length/Math.max(1,n)));
+  const days=[]; let cur=[];
+  seq.forEach(p=>{ const far=cur.length&&kmBetween(cur[0],p)>120&&days.length+1<n; if(cur.length>=cap||far){ days.push(cur); cur=[]; } cur.push(p); });
+  if(cur.length) days.push(cur);
+  while(days.length>n){ const last=days.pop(); days[days.length-1]=days[days.length-1].concat(last); }
+  const out=[]; for(let i=0;i<n;i++) out.push({date:addDays(B.start,i),stops:(days[i]||[]).map(p=>({k:p.k,name:p.name,lat:+p.lat,lon:+p.lon,route:!!p.route}))});
+  return out;
+}
+function bPlanFresh(B){ const sig=JSON.stringify([Object.keys(B.picks||{}).sort(),B.itinPick&&B.itinPick.title,B.start,B.end,B.pace]); if(!S.bPlan||S.bPlan.sig!==sig) S.bPlan={sig,days:bArrange(B)}; return S.bPlan.days; }
+function bDayTitle(D,st){ if(!st.length) return "Free day";
+  const towns=new Set((D&&D.guide?[...(D.guide.cities||[]),...(D.guide.others||[])]:[]).map(c=>c.name));
+  const t=st.filter(p=>towns.has(p.name)).map(p=>p.name), sights=st.filter(p=>!towns.has(p.name)).map(p=>p.name);
+  const and=a=>a.length<3? a.join(" and ") : a.slice(0,-1).join(", ")+" and "+a[a.length-1];
+  if(t.length) return and(t)+(sights.length?": "+sights[0]+(sights.length>1?" and more":""):"");
+  const a=bAreaOf(D,st[0]); const head=sights.slice(0,2).join(" and ")+(sights.length>2?" and more":"");
+  return a? a+": "+head : head; }
+const DAYCOLS=["#7B3FA0","#D9480F","#C2185B","#1565C0","#5D4037","#B71C1C","#37474F","#0B5F73","#2E7D32"];
+function bStep3(B,c,D,head){
+  const days=bPlanFresh(B); const n=days.length; const used=days.filter(d=>d.stops.length).length;
+  return `<div class="builder"><div class="card">${head(3,"Your days",`${used} of ${n} days planned, grouped by area so drives stay short. Move a place to another day, or ask for ideas on a free day.`)}</div>
+    <div class="planlist">${days.map((d,i)=>`<div class="card planday" style="border-left:5px solid ${DAYCOLS[i%DAYCOLS.length]}">
+      <div class="spread"><span class="eyebrow">${esc(fmtDay(d.date,true))}</span>${d.stops.length?`<span class="small muted">${d.stops.length} place${d.stops.length===1?"":"s"}</span>`:""}</div>
+      <strong>${esc(bDayTitle(D,d.stops))}</strong>
+      ${d.stops.length?`<ul class="planstops">${d.stops.map(p=>`<li><span>${esc(p.name)}</span>${p.route?`<span class="small muted">on the route</span>`:`<span class="row" style="gap:6px;flex-wrap:nowrap"><label class="sr" for="mv-${esc(p.k)}">Move ${esc(p.name)}</label><select id="mv-${esc(p.k)}" class="field sm" data-b-move="${esc(p.k)}" data-from="${i}">${days.map((x,j)=>`<option value="${j}" ${j===i?"selected":""}>${esc(fmtDay(x.date,true))}</option>`).join("")}</select><button class="btn sm" aria-label="Remove ${esc(p.name)}" data-b-unpick="${esc(p.k)}">✕</button></span>`}</li>`).join("")}</ul>`
+        :`<div class="row" style="margin-top:6px"><button class="btn sm" data-b-suggest="${i}" ${D&&!D.busy?"":"disabled"}>Suggest something</button><span class="small muted">or keep it free</span></div>`}
+    </div>`).join("")}</div>
+    <div class="buildbar"><span class="small">You can change anything later in Days and Explore.</span><button class="btn primary" data-b-create ${used?"":"disabled"}>${B.forTrip?"Add to my trip":"Create trip"}</button></div>
+  </div>`;
+}
+function bSuggest(i){ const B=bState(), c=countryByName(B.country), D=S.bData; if(!c||!D) return;
+  const days=bPlanFresh(B); const near=[]; for(let k=1;k<days.length&&!near.length;k++){ [days[i-k],days[i+k]].forEach(d=>{ if(d&&d.stops.length) near.push(...d.stops); }); }
+  const taken=new Set(Object.keys(B.picks||{}));
+  const pool=[...bList(B,D,"famous"),...bList(B,D,"offbeat")].filter(x=>!taken.has(pickKey(x)));
+  if(!pool.length){ toast("No more ideas for this country."); return; }
+  const score=x=>near.length? Math.min(...near.map(p=>kmBetween(p,x))) - (x._fit?20:0) : x._i;
+  pool.sort((a,b)=>score(a)-score(b)); const pick=pool.slice(0,Math.min(bPer(B),2));
+  B.picks=B.picks||{}; pick.forEach(x=>{ B.picks[pickKey(x)]={name:x.name,lat:x.lat,lon:x.lon}; });
+  const sig=S.bPlan.sig; days[i].stops=pick.map(x=>({k:pickKey(x),name:x.name,lat:x.lat,lon:x.lon}));
+  bSave(); S.bPlan={sig:JSON.stringify([Object.keys(B.picks).sort(),B.itinPick&&B.itinPick.title,B.start,B.end,B.pace]),days};
+  render(); toast("Added "+pick.map(x=>x.name).join(" and "));
 }
 function sugCard(x,B){ const k=pickKey(x), on=!!(B.picks&&B.picks[k]);
   return `<div class="sug ${on?"on":""}">${x.img?`<img loading="lazy" alt="" src="${esc(thumb(x.img,360))}" onerror="this.style.visibility='hidden'">`:`<div class="noimg"></div>`}
@@ -1547,31 +1710,37 @@ function orderByNearest(pts){ if(pts.length<3) return pts; const rest=pts.slice(
 function createFromBuilder(){
   const B=bState(); const c=countryByName(B.country); if(!c||!B.start||!B.end){ toast("Add a country and both dates."); return; }
   if(B.end<B.start){ toast("The end date is before the start date."); return; }
-  const n=Math.round((dateObj(B.end)-dateObj(B.start))/864e5)+1; if(n>90){ toast("Keep it to 90 days or fewer."); return; }
-  const title=(B.title||"").trim()||c.name+" trip";
-  let id=slug(title)+"-"+B.start.slice(0,4), k2=2; while(allTrips()[id]) id=slug(title)+"-"+B.start.slice(0,4)+"-"+(k2++);
-  const places={}; const keyFor=name=>{ let base=slug(name).replace(/-/g,"").toUpperCase().slice(0,12)||"PLACE", key=base, i=2; while(places[key]) key=base+(i++); return key; };
-  const route=(B.itinPick&&B.itinPick.stops||[]).map(s=>({name:s.name,lat:s.lat,lon:s.lon,route:true}));
-  let picks=Object.values(B.picks||{});
-  // with a road trip, slot each picked place next to the nearest point on the route
-  let seq;
-  if(route.length){ seq=route.slice(); picks.forEach(p=>{ let bi=0,bd=1e18; seq.forEach((r,i)=>{ const d=(r.lat-p.lat)**2+((r.lon-p.lon)*Math.cos(r.lat*Math.PI/180))**2; if(d<bd){bd=d;bi=i;} }); seq.splice(bi+1,0,p); }); }
-  else seq=orderByNearest(picks);
-  seq=seq.map(p=>Object.assign({},p,{key:keyFor(p.name)})); seq.forEach(p=>{ places[p.key]={name:p.name,lat:+p.lat,lon:+p.lon,area:c.name,added:true}; });
-  const COLS=["#7B3FA0","#D9480F","#C2185B","#1565C0","#5D4037","#B71C1C","#37474F","#0B5F73","#2E7D32"];
-  const per=Math.max(1,Math.ceil(seq.length/n)); const days=[];
-  for(let i=0;i<n;i++){ const chunk=seq.slice(i*per,(i+1)*per); days.push({date:addDays(B.start,i),title:chunk.length?chunk.map(p=>p.name).slice(0,2).join(" and ")+(chunk.length>2?" and more":""):"Free day",color:COLS[i%COLS.length],route:chunk.length>1?chunk.map(p=>p.key):undefined,steps:chunk.map(p=>({time:"",title:p.name,place:p.key}))}); }
-  const D=S.bData||{}; const notes=[]; if(D.guide&&D.guide.lead) notes.push({title:"About "+c.name,body:D.guide.lead});
-  const t={format:"trip-planner/1",id,title,start:B.start,end:B.end,travellers:(B.who||"").split(",").map(s=>s.trim()).filter(Boolean),currency:"GBP",region:c.name,
-    tagline:B.itinPick?`Road trip along ${B.itinPick.title}.`:B.style==="offbeat"?`Off the beaten path in ${c.name}.`:`The highlights of ${c.name}.`,
-    places,stays:[],transport:B.road?[{id:"car",kind:"car",title:"Hire car",at:B.start,until:B.end,status:"todo"}]:[],bookings:[],days,checklist:[],notes,links:[{title:"Wikivoyage: "+c.name,url:"https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.wv)}],
-    guide:D.guide&&D.guide.getAround?{title:"Getting around "+c.name,html:D.guide.getAround,source:"https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.wv)}:undefined};
-  persistTrip(t); S.status[id]={}; S.b=null; try{ localStorage.removeItem("ts.builder"); }catch(e){} S.bItin=null;
-  openTrip(id,"overview"); toast("Trip created with "+seq.length+" places"); ensureWx(t,true);
+  const n=bDays(B); if(n>90){ toast("Keep it to 90 days or fewer."); return; }
+  const days0=bPlanFresh(B); if(!days0.some(d=>d.stops.length)){ toast("Pick at least one place first."); return; }
+  const existing=B.forTrip&&allTrips()[B.forTrip];
+  const title=existing? existing.title : (B.title||"").trim()||c.name+" trip";
+  let id=existing? existing.id : slug(title)+"-"+B.start.slice(0,4), k2=2; if(!existing) while(allTrips()[id]) id=slug(title)+"-"+B.start.slice(0,4)+"-"+(k2++);
+  const places=existing? Object.assign({},existing.places) : {}; const keyFor=name=>{ let base=slug(name).replace(/-/g,"").toUpperCase().slice(0,12)||"PLACE", key=base, i=2; while(places[key]) key=base+(i++); return key; };
+  const D=S.bData||{}; let count=0;
+  const days=days0.map((d,i)=>{ const keys=d.stops.map(p=>{ const key=keyFor(p.name); places[key]={name:p.name,lat:p.lat,lon:p.lon,area:bAreaOf(D,p)||c.name,added:true}; count++; return key; });
+    const old=existing&&(existing.days||[]).find(x=>x.date===d.date);
+    const steps=(old?old.steps:[]).concat(keys.map(k=>({time:"",title:places[k].name,place:k})));
+    return {date:d.date,title:old&&old.title&&old.title!=="Free day"?old.title:bDayTitle(D,d.stops),color:(old&&old.color)||DAYCOLS[i%DAYCOLS.length],route:keys.length>1?keys:undefined,steps,stay:old&&old.stay}; });
+  const notes=[]; if(D.guide&&D.guide.lead) notes.push({title:"About "+c.name,body:D.guide.lead});
+  const guide=D.guide&&D.guide.getAround?{title:"Getting around "+c.name,html:D.guide.getAround,source:"https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.wv)}:undefined;
+  const t= existing? Object.assign({},existing,{places,days,food:B.food||existing.food,pace:B.pace||existing.pace,guide:existing.guide||guide})
+   : {format:"trip-planner/1",id,title,start:B.start,end:B.end,travellers:(B.who||"").split(",").map(s=>s.trim()).filter(Boolean),currency:"GBP",region:c.name,food:B.food||"any",pace:B.pace||"balanced",
+    tagline:B.itinPick?`Road trip along ${B.itinPick.title}.`:B.style==="offbeat"?`Off the beaten path in ${c.name}.`:B.style==="mix"?`Highlights and hidden gems of ${c.name}.`:`The highlights of ${c.name}.`,
+    places,stays:[],transport:B.road?[{id:"car",kind:"car",title:"Hire car",at:B.start,until:B.end,status:"todo"}]:[],bookings:[],days,checklist:[],notes,links:[{title:"Wikivoyage: "+c.name,url:"https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.wv)}],guide};
+  persistTrip(t); if(!existing) S.status[id]={}; S.b=null; S.bStep=1; S.bPlan=null; S.bTab=null; S.bArea=""; try{ localStorage.removeItem("ts.builder"); }catch(e){} S.bItin=null;
+  openTrip(id,"overview"); toast((existing?"Added ":"Trip created with ")+count+" places"); ensureWx(t,true);
 }
 async function builderClick(el){
   const B=bState();
-  if(el.dataset.bStyle){ B.style=el.dataset.bStyle; bSave(); render(); return true; }
+  if(el.dataset.bStyle){ B.style=el.dataset.bStyle; S.bTab=null; bSave(); render(); return true; }
+  if(el.dataset.bInt){ const a=B.interests=B.interests||[]; const k=el.dataset.bInt; const i=a.indexOf(k); if(i>=0) a.splice(i,1); else a.push(k); bSave(); render(); return true; }
+  if(el.dataset.bFood){ B.food=el.dataset.bFood; bSave(); render(); return true; }
+  if(el.dataset.bPace){ B.pace=el.dataset.bPace; bSave(); render(); return true; }
+  if(el.dataset.bStep){ const n=+el.dataset.bStep; const c=countryByName(B.country); if(n>1&&(!c||!bDays(B))) return true; if(c&&n>1) bLoad(c); S.bStep=n; render(); window.scrollTo({top:0}); return true; }
+  if(el.dataset.bTab){ S.bTab=el.dataset.bTab; render(); return true; }
+  if(el.dataset.bArea!==undefined){ S.bArea=el.dataset.bArea; render(); return true; }
+  if(el.dataset.bUnpick){ const k=el.dataset.bUnpick; if(B.picks) delete B.picks[k]; bSave(); if(S.bPlan){ S.bPlan.days.forEach(d=>{ d.stops=d.stops.filter(p=>p.k!==k); }); S.bPlan.sig=JSON.stringify([Object.keys(B.picks||{}).sort(),B.itinPick&&B.itinPick.title,B.start,B.end,B.pace]); } render(); return true; }
+  if(el.dataset.bSuggest){ bSuggest(+el.dataset.bSuggest); return true; }
   if(el.dataset.bPick){ B.picks=B.picks||{}; const k=el.dataset.bPick; if(B.picks[k]) delete B.picks[k]; else B.picks[k]={name:el.dataset.bName,lat:+el.dataset.bLat,lon:+el.dataset.bLon}; bSave(); const y=window.scrollY; render(); window.scrollTo(0,y); return true; }
   if(el.dataset.bItin){ const title=el.dataset.bItin; S.bItin={title,busy:true}; render(); try{ S.bItin=await itineraryDetail(title); }catch(e){ S.bItin={title,error:"Couldn't load this route. Check your connection."}; } render(); const d=$("#itin-detail"); if(d) d.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
   if(el.dataset.bScenic){ const D=S.bData; const x=D&&D.trips&&(D.trips.scenic||[]).find(y=>y.id===el.dataset.bScenic); if(!x) return true; S.bItin={title:x.t,busy:true}; render(); try{ S.bItin=await scenicDetail(x); }catch(e){ S.bItin={title:x.t,error:"Couldn't load this route. Check your connection."}; } render(); const d=$("#itin-detail"); if(d) d.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
@@ -1579,10 +1748,14 @@ async function builderClick(el){
   if(el.hasAttribute("data-b-itin-use")&&S.bItin&&S.bItin.stops){ B.itinPick= B.itinPick&&B.itinPick.title===S.bItin.title? null : {title:S.bItin.title,stops:S.bItin.stops}; bSave(); render(); return true; }
   if(el.hasAttribute("data-b-retry")){ S.bData=null; render(); return true; }
   if(el.hasAttribute("data-b-create")){ createFromBuilder(); return true; }
-  if(el.hasAttribute("data-open-builder")){ await countries(); S.screen="builder"; render(); window.scrollTo({top:0}); return true; }
+  if(el.hasAttribute("data-open-builder")){ await countries(); if(S.b&&S.b.forTrip){ S.b=null; } S.bStep=1; S.screen="builder"; render(); window.scrollTo({top:0}); return true; }
+  if(el.dataset.bFill){ const t=allTrips()[el.dataset.bFill]; if(!t) return true; await countries(); const c=countryByName(t.region||"");
+    S.b={country:c?c.name:"",title:t.title,start:t.start,end:t.end,who:"",style:"famous",picks:{},interests:[],food:t.food||"any",pace:t.pace||"balanced",road:false,forTrip:t.id}; bSave(); S.bPlan=null; S.bTab=null; S.bArea="";
+    S.bStep=c?2:1; if(c) bLoad(c); S.screen="builder"; render(); window.scrollTo({top:0}); return true; }
   return false;
 }
 function builderInput(el){
+  if(el.dataset&&el.dataset.bMove!==undefined&&S.bPlan){ const from=+el.dataset.from, to=+el.value, k=el.dataset.bMove; const d=S.bPlan.days; const i=d[from].stops.findIndex(p=>p.k===k); if(i>=0){ const [p]=d[from].stops.splice(i,1); d[to].stops.push(p); } render(); return true; }
   if(el.id==="b-road"){ const B0=bState(); B0.road=el.checked; if(!el.checked){ B0.itinPick=null; S.bItin=null; } bSave(); render(); return true; }
   const B=bState(); const map={"b-country":"country","b-title":"title","b-start":"start","b-end":"end","b-who":"who"}; const f=map[el.id]; if(!f) return false;
   B[f]=el.value; if(f==="country"){ B.picks={}; B.itinPick=null; S.bItin=null; } bSave();
@@ -2040,7 +2213,7 @@ addEventListener("hashchange", ()=>readIncoming());
 // remember which days are open on Explore, and look for ideas when a day opens
 document.addEventListener("toggle", e=>{ const el=e.target; if(!(el instanceof HTMLDetailsElement)||!el.dataset.daygrp) return;
   S.openDays=S.openDays||{}; S.openDays[el.dataset.daygrp]=el.open; const t=trip(); if(!el.open||!t) return;
-  const d=(t.days||[]).find(x=>x.date===el.dataset.daygrp); if(d) loadDayIdeas(t,d); }, true);
+  const d=(t.days||[]).find(x=>x.date===el.dataset.daygrp); if(d){ loadDayIdeas(t,d); loadEats(t,d); } }, true);
 if("serviceWorker" in navigator && location.protocol!=="file:"){
   navigator.serviceWorker.register("sw.js").then(reg=>{
     S.swReady=!!navigator.serviceWorker.controller||!!reg.active;

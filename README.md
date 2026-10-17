@@ -12,12 +12,12 @@ Live app: **https://sage-of-the-hills.github.io/tripster/** (after the first dep
 | | |
 |---|---|
 | **Home** | Greets you by name, counts down to your next trip and lists every trip saved on the device. |
-| **Trip builder** | Pick a country and dates, then choose *well-known highlights* or *off-the-beaten-path* places, optionally along a *famous road trip*. Shows how to get around the country. |
+| **Trip builder** | Three steps. 1: country, dates, the kind of trip, what you like, food (vegetarian, vegan or anything) and pace. 2: pick from the country's most recommended places (Must-see, Hidden gems, Road trips), filtered by area, each with Tripadvisor, Google and Reddit links. 3: Tripster groups your picks into days by area; move places between days or ask for ideas on free days, then create the trip. |
 | **Overview** | Bookings still to make (with deadlines), stays, day-by-day summary, weather alerts, live conditions. |
 | **Days** | A map for each day, a timed timeline with daylight bars, and the weather at each stop. One tap opens the whole day in Google Maps. |
 | **Weather** | Forecasts for every place, hour by hour, with a drone-flying rating (Good / Marginal / No-fly). Alerts for strong gusts, heavy snow or rain, severe cold, freezing rain and storms, and for big forecast changes. |
 | **Live conditions** | Official weather warnings (MeteoAlarm, about 38 European countries), Safe Travel alerts and road conditions (Iceland), and a northern-lights outlook for each night. |
-| **Explore** | Places grouped by day. Each day suggests a few well-known stops along that day's route, sized to how much daylight the plan leaves free, with Tripadvisor, Google reviews and Reddit a tap away. *Discover* shows the country's highlights, off-beat places and road trips in a swipeable row, with how far each is from your plan. Add any place by search. |
+| **Explore** | Places grouped by day, with *Where to eat* near each day's stops (best nearby, vegetarian, vegan; from OpenStreetMap). Each day suggests a few well-known stops along that day's route, sized to how much daylight the plan leaves free, with Tripadvisor, Google reviews and Reddit a tap away. *Discover* shows the country's highlights, off-beat places and road trips in a swipeable row, with how far each is from your plan. Add any place by search. |
 | **Bookings** | Every booking, stay, flight and car hire with a To book / Booked / Paid switch, plus a packing checklist. |
 | **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. Home shows *Trips you planned* and *Trips you were part of*: after a trip ends, only the planner keeps the full details; everyone else keeps a record (dates, places, people, final balances). |
 | **Money** | A simple Splitwise: add who paid and who it was for, see each person's share, balances and the fewest payments to settle up. Download as a spreadsheet. |
@@ -91,6 +91,7 @@ Run it locally with any static server, for example `cd app && python3 -m http.se
 | [Safetravel.is](https://safetravel.is) (ICE-SAR) | Iceland travel alerts | Public alerts, linked to source |
 | [MeteoAlarm](https://meteoalarm.org) | Official weather warnings (via relay) | Public warnings, linked to source |
 | [Vegagerðin](https://umferdin.is) | Iceland road conditions (via relay) | Open data, linked to source |
+| [OpenStreetMap](https://www.openstreetmap.org) via Overpass | Restaurants and their vegetarian and vegan labels | ODbL |
 | [Firebase](https://firebase.google.com) | Sign-in and shared trips (optional, your own project) | Google Firebase terms |
 
 Tripadvisor has no open data feed, so places link out to it rather than showing its content.
