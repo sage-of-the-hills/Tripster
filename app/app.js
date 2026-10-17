@@ -1354,7 +1354,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.13.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.14.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -1692,18 +1692,40 @@ function pickRow(x,B,c){ const k=pickKey(x), on=!!(B.picks&&B.picks[k]);
 // Arrange the picks into days: nearest-neighbour order (or along the road trip), filled up to the pace,
 // starting a new day when the next place is a long way from the day's first stop.
 function cleanDesc(v){ return String(v||"").replace(/^\s*\([^)]*\)\s*[–—-]?\s*/,"").replace(/^./,c=>c.toUpperCase()); }
+// Many road trips cross borders (E45 runs from Sicily to Denmark). Keep the stops inside this country:
+// inside the box around the country's known places, and near at least one of them.
+function inCountry(stops,D){
+  const known=[...((D&&D.sights&&D.sights.famous)||[]),...((D&&D.sights&&D.sights.offbeat)||[]),...((D&&D.guide&&D.guide.cities)||[]),...((D&&D.guide&&D.guide.others)||[]),...((D&&D.wdCities)||[])].filter(x=>x&&x.lat!=null&&isFinite(x.lat));
+  if(known.length<8) return stops;
+  const la=known.map(x=>+x.lat), lo=known.map(x=>+x.lon); const pad=.15;
+  const box=[Math.min(...la)-pad,Math.max(...la)+pad,Math.min(...lo)-pad,Math.max(...lo)+pad];
+  return stops.filter(s=>s.lat>=box[0]&&s.lat<=box[1]&&s.lon>=box[2]&&s.lon<=box[3]&&known.some(k=>kmBetween(k,s)<60));
+}
+// Spread the places over the days. They're first put in travel order (along the road trip, or
+// nearest-next), then cut into days by a small optimisation: keep each day's travelling short, avoid
+// going over the chosen pace, and don't use a new day for places a short hop apart. Leftover days
+// stay free at the end. Towns you only pass through on a road trip count as half a stop.
 function bArrange(B){
-  const n=bDays(B), per=bPer(B);
-  const route=(B.itinPick&&B.itinPick.stops||[]).map(s=>({name:s.name,lat:s.lat,lon:s.lon,route:true}));
+  const n=bDays(B), per=bPer(B), D=S.bData;
+  const route=inCountry((B.itinPick&&B.itinPick.stops||[]),D).map((s,i)=>({k:"route"+i,name:s.name,lat:+s.lat,lon:+s.lon,route:true}));
   const picks=Object.entries(B.picks||{}).map(([k,p])=>Object.assign({k},p));
-  let seq; if(route.length){ seq=route.map((r,i)=>Object.assign({k:"route"+i},r)); picks.forEach(p=>{ let bi=0,bd=1e18; seq.forEach((r,i)=>{ const d=kmBetween(r,p); if(d<bd){bd=d;bi=i;} }); seq.splice(bi+1,0,p); }); }
+  // a route town you also picked appears once, as your pick
+  const same=(r,p)=>normName(r.name)===normName(p.name)||kmBetween(r,p)<1.5;
+  let seq; if(route.length){ seq=route.filter(r=>!picks.some(p=>same(r,p))); picks.forEach(p=>{ let bi=0,bd=1e18; seq.forEach((r,i)=>{ const d=kmBetween(r,p); if(d<bd){bd=d;bi=i;} }); seq.splice(bi+1,0,p); }); }
   else seq=orderByNearest(picks);
-  const cap=Math.max(per,Math.ceil(seq.length/Math.max(1,n)));
-  const days=[]; let cur=[];
-  seq.forEach(p=>{ const far=cur.length&&kmBetween(cur[0],p)>120&&days.length+1<n; if(cur.length>=cap||far){ days.push(cur); cur=[]; } cur.push(p); });
-  if(cur.length) days.push(cur);
-  while(days.length>n){ const last=days.pop(); days[days.length-1]=days[days.length-1].concat(last); }
-  const out=[]; for(let i=0;i<n;i++) out.push({date:addDays(B.start,i),stops:(days[i]||[]).map(p=>({k:p.k,name:p.name,lat:+p.lat,lon:+p.lon,route:!!p.route}))});
+  const L=seq.length, out=[]; const empty=()=>{ for(let i=0;i<n;i++) out.push({date:addDays(B.start,i),stops:[]}); return out; };
+  if(!L||!n) return empty();
+  const w=p=>p.route?.5:1, hop=[0]; for(let i=1;i<L;i++) hop.push(kmBetween(seq[i-1],seq[i]));
+  const DAY=80, OVER=250; // a new day "costs" 80 km of driving; each stop over the pace costs 250 km
+  const H=[0], Wt=[0]; for(let i=0;i<L;i++){ H.push(H[i]+hop[i]); Wt.push(Wt[i]+w(seq[i])); }
+  const cost=(a,b)=>{ const km=H[b+1]-H[a+1], size=Wt[b+1]-Wt[a]; return DAY+km+Math.max(0,size-per)*OVER; };
+  const m=Math.min(n,L); const INF=1e18;
+  // f[d][i]: best cost of putting the first i places into d days; cut[d][i] remembers the split
+  const f=Array.from({length:m+1},()=>new Array(L+1).fill(INF)), cut=Array.from({length:m+1},()=>new Array(L+1).fill(0)); f[0][0]=0;
+  for(let d=1;d<=m;d++) for(let i=1;i<=L;i++) for(let j=d-1;j<i;j++){ if(f[d-1][j]>=INF) continue; const v=f[d-1][j]+cost(j,i-1); if(v<f[d][i]){ f[d][i]=v; cut[d][i]=j; } }
+  let best=1; for(let d=1;d<=m;d++) if(f[d][L]<f[best][L]) best=d;
+  const groups=[]; let i=L; for(let d=best;d>=1;d--){ const j=cut[d][i]; groups.unshift(seq.slice(j,i)); i=j; }
+  for(let k=0;k<n;k++) out.push({date:addDays(B.start,k),stops:(groups[k]||[]).map(p=>({k:p.k,name:p.name,lat:+p.lat,lon:+p.lon,route:!!p.route}))});
   return out;
 }
 function bPlanFresh(B){ const sig=JSON.stringify([Object.keys(B.picks||{}).sort(),B.itinPick&&B.itinPick.title,B.start,B.end,B.pace]); if(!S.bPlan||S.bPlan.sig!==sig) S.bPlan={sig,days:bArrange(B)}; return S.bPlan.days; }
@@ -1755,7 +1777,7 @@ function itinDetail(it,B){
   return `<div class="card" style="margin-top:12px" id="itin-detail"><div class="spread"><h3>${esc(it.title)}</h3><button class="btn" data-b-itin-close>Close</button></div>
    ${miniRoute(it.stops)}
    ${it.lead?`<p>${esc(it.lead)}</p>`:""}${it.understand&&it.understand.slice(0,40)!==(it.lead||"").slice(0,40)?`<p class="small"><strong>Understand.</strong> ${esc(it.understand)}</p>`:""}${it.prepare?`<p class="small"><strong>Prepare.</strong> ${esc(it.prepare)}</p>`:""}
-   ${it.stops.length?`<p class="small" style="margin-bottom:4px"><strong>${it.stops.length} stops along the way</strong></p><ol class="small" style="margin-top:0;padding-left:20px;columns:2 220px">${it.stops.map(s=>`<li>${esc(s.name)}</li>`).join("")}</ol>`:`<p class="small muted">${it.scenic?"There's no traveller route guide for this one yet. Add the highlights you want along it and Tripster orders them into a drive.":"This guide has no mapped stops. You can still pick highlights to go with it."}</p>`}
+   ${it.stops.length?`<p class="small" style="margin-bottom:4px"><strong>${it.stops.length} stops along the way</strong>${(()=>{ const c=countryByName(B.country); const n=inCountry(it.stops,S.bData).length; return n<it.stops.length&&c? ` · <span class="muted">${n} of them in ${esc(c.name)}; the rest are in other countries and won't be added</span>` : ""; })()}</p><ol class="small" style="margin-top:0;padding-left:20px;columns:2 220px">${it.stops.map(s=>`<li>${esc(s.name)}</li>`).join("")}</ol>`:`<p class="small muted">${it.scenic?"There's no traveller route guide for this one yet. Add the highlights you want along it and Tripster orders them into a drive.":"This guide has no mapped stops. You can still pick highlights to go with it."}</p>`}
    <div class="row">${it.stops.length?`<button class="btn primary" data-b-itin-use>${on?"Using this route ✓":"Use this road trip"}</button>`:""}${it.scenic?srcLink("Read on Wikipedia","https://en.wikipedia.org/wiki/"+encodeURIComponent(it.wiki)):srcLink("Read the full route guide","https://en.wikivoyage.org/wiki/"+encodeURIComponent(it.title))}</div></div>`;
 }
 function miniRoute(stops){
@@ -1816,7 +1838,11 @@ async function builderClick(el){
   if(el.dataset.bItin){ const title=el.dataset.bItin; S.bItin={title,busy:true}; render(); try{ S.bItin=await itineraryDetail(title); }catch(e){ S.bItin={title,error:"Couldn't load this route. Check your connection."}; } render(); const d=$("#itin-detail"); if(d) d.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
   if(el.dataset.bScenic){ const D=S.bData; const x=D&&D.trips&&(D.trips.scenic||[]).find(y=>y.id===el.dataset.bScenic); if(!x) return true; S.bItin={title:x.t,busy:true}; render(); try{ S.bItin=await scenicDetail(x); }catch(e){ S.bItin={title:x.t,error:"Couldn't load this route. Check your connection."}; } render(); const d=$("#itin-detail"); if(d) d.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
   if(el.hasAttribute("data-b-itin-close")){ S.bItin=null; render(); return true; }
-  if(el.hasAttribute("data-b-itin-use")&&S.bItin&&S.bItin.stops){ B.itinPick= B.itinPick&&B.itinPick.title===S.bItin.title? null : {title:S.bItin.title,stops:S.bItin.stops}; bSave(); render(); return true; }
+  if(el.hasAttribute("data-b-itin-use")&&S.bItin&&S.bItin.stops){ if(B.itinPick&&B.itinPick.title===S.bItin.title){ B.itinPick=null; bSave(); render(); return true; }
+    const c=countryByName(B.country); const inside=inCountry(S.bItin.stops,S.bData);
+    if(!inside.length){ toast("None of this route's stops are in "+(c?c.name:"this country")+"."); return true; }
+    B.itinPick={title:S.bItin.title,stops:inside}; bSave(); render();
+    toast(inside.length<S.bItin.stops.length? `Using the ${inside.length} stops in ${c?c.name:"this country"} (the route has ${S.bItin.stops.length})` : `Using all ${inside.length} stops`); return true; }
   if(el.hasAttribute("data-b-retry")){ S.bData=null; render(); return true; }
   if(el.hasAttribute("data-b-create")){ createFromBuilder(); return true; }
   if(el.hasAttribute("data-open-builder")){ await countries(); if(S.b&&S.b.forTrip){ S.b=null; } S.bStep=1; S.screen="builder"; render(); window.scrollTo({top:0}); return true; }
