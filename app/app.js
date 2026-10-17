@@ -1361,7 +1361,7 @@ async function wvGet(params){ const u=WV+"?"+new URLSearchParams(Object.assign({
 function discCache(k,v){ const key="ts.disc."+k; if(v===undefined){ const x=loadJSON(key); return x&&Date.now()-x.at<7*864e5? x.v : null; } saveJSON(key,{at:Date.now(),v}); return v; }
 
 // Wikitext helpers
-function wtClean(s){ return String(s||"").replace(/\[\[([^|\]#]*)#[^|\]]*\]\]/g,"$1").replace(/\{\{[^{}]*\}\}/g,"").replace(/\[\[(?:File|Image):[^\]]*\]\]/gi,"").replace(/\[\[([^|\]]*\|)?([^\]]*)\]\]/g,"$2").replace(/\[https?:\/\/\S+ ([^\]]*)\]/g,"$1").replace(/'{2,}/g,"").replace(/<[^>]+>/g,"").replace(/\s+/g," ").trim(); }
+function wtClean(s){ return String(s||"").replace(/\{\{\s*UNESCO\s*\}\}/gi,"UNESCO World Heritage Site").replace(/\[\[([^|\]#]*)#[^|\]]*\]\]/g,"$1").replace(/\{\{[^{}]*\}\}/g,"").replace(/\[\[(?:File|Image):[^\]]*\]\]/gi,"").replace(/\[\[([^|\]]*\|)?([^\]]*)\]\]/g,"$2").replace(/\[https?:\/\/\S+ ([^\]]*)\]/g,"$1").replace(/'{2,}/g,"").replace(/<[^>]+>/g,"").replace(/\s+/g," ").trim(); }
 function wtParams(tpl){ // split {{name|a=b|...}} at top-level pipes, respecting [[links]] and {{nested}}
   const body=tpl.replace(/^\{\{/,"").replace(/\}\}$/,""); const parts=[]; let depth=0, cur="";
   for(let i=0;i<body.length;i++){ const two=body.substr(i,2);
@@ -1385,12 +1385,12 @@ function wtDestinations(body){ // list items: {{marker|name=[[X]]|lat|long|wikid
     const link=(name.match(/\[\[([^|\]]+)/)||[])[1]||wtClean(name);
     name=wtClean(name); if(!name||name.length>60) return;
     const desc=wtClean(rest.replace(/^[\s:–—-]+/,"")).replace(/^[–—-]\s*/,"");
-    out.push({name,link,lat,lon,qid,desc:desc.slice(0,220)});
+    out.push({name,link,lat,lon,qid,desc:desc.replace(/[\s,;:–—-]+$/,"").slice(0,220)});
   });
   return out;
 }
 async function countryGuide(c){
-  const hit=discCache("guide."+c.q); if(hit) return hit;
+  const hit=discCache("guide2."+c.q); if(hit) return hit;
   const d=await wvGet({action:"parse",page:c.wv,prop:"sections|wikitext",redirects:"1"});
   const wt=(d.parse&&d.parse.wikitext)||""; const secs=wtSections(wt);
   const pick=re=>secs.filter(s=>s.level===2&&re.test(s.title)).flatMap(s=>wtDestinations(s.body));
@@ -1405,7 +1405,7 @@ async function countryGuide(c){
   const sec=(d.parse.sections||[]).find(s=>/^get around$/i.test(s.line)); let getAround="";
   if(sec){ try{ const h=await wvGet({action:"parse",page:c.wv,section:sec.index,prop:"text",disableeditsection:"1",redirects:"1"}); getAround=safeHTML(h.parse.text); }catch(e){} }
   const g={lead,cities,others,getAround,page:c.wv};
-  return (cities.length||others.length||getAround)? discCache("guide."+c.q,g) : g;
+  return (cities.length||others.length||getAround)? discCache("guide2."+c.q,g) : g;
 }
 function safeHTML(html){ // keep headings, paragraphs and lists as plain text structure
   const doc=new DOMParser().parseFromString(html,"text/html");
@@ -1526,9 +1526,12 @@ function bState(){ if(!S.b){ S.b=loadJSON("ts.builder")||{style:"famous",road:fa
 function bSave(){ saveJSON("ts.builder",S.b); }
 async function bLoad(c){
   const B=bState(); if(!c) return; S.bData=S.bData||{}; if(S.bData.q===c.q&&!S.bData.error) return;
-  S.bData={q:c.q,busy:true}; render();
-  const [g,s,r]=await Promise.allSettled([countryGuide(c),countrySights(c),roadTrips(c)]);
-  S.bData={q:c.q,guide:g.value,sights:s.value,trips:r.value,error:(g.status==="rejected"&&s.status==="rejected")?"Couldn't reach the travel guides. Check your connection.":null};
+  S.bData={q:c.q,busy:true,guideBusy:true}; render();
+  const gp=countryGuide(c).catch(()=>null).then(async g=>{ let wdc=null; if(!g||!(g.cities||[]).some(x=>x.lat!=null)){ try{ wdc=await wdCities(c); }catch(e){} }
+    if(S.bData&&S.bData.q===c.q){ S.bData.guide=g||undefined; S.bData.wdCities=wdc; S.bData.guideBusy=false; render(); } return g; });
+  const [g,s,r]=await Promise.allSettled([gp,countrySights(c),roadTrips(c)]);
+  if(!S.bData||S.bData.q!==c.q) return;
+  S.bData={q:c.q,guide:g.value||undefined,wdCities:S.bData.wdCities,sights:s.value,trips:r.value,error:(!g.value&&s.status==="rejected")?"Couldn't reach the travel guides. Check your connection.":null};
   render();
 }
 function suggestionList(B,data){
@@ -1567,12 +1570,13 @@ function bStep1(B,c,head){
   const n=bDays(B), ok=c&&n>0&&n<=90;
   return `<div class="builder"><div class="card">${head(1,B.forTrip?"Choose places for "+esc(B.title||"your trip"):"Plan a trip","Tell us the basics. Next you'll pick the places you'd like to see.")}
     <form class="form" data-builder-form onsubmit="return false">
-      <div><label for="b-country">Where</label><input id="b-country" list="b-countries" value="${esc(B.country)}" placeholder="Start typing, e.g. Iceland" autocomplete="off"><datalist id="b-countries">${(COUNTRIES||[]).map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist></div>
-      ${B.country&&!c?`<p class="small" style="color:var(--bad);margin:0">Pick a country from the list so Tripster can find places.</p>`:""}
+      <div><label for="b-country">Country</label><select id="b-country" class="field"><option value="">Choose a country</option>${(COUNTRIES||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${esc(x.name)}" ${c&&c.q===x.q?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
+      ${c?"":`<div class="chips" aria-label="Popular countries">${POPULAR.filter(n=>countryByName(n)).map(n=>chip(false,`data-b-country="${esc(n)}"`,n)).join("")}</div>`}
       <div class="two"><div><label for="b-start">Start</label><input id="b-start" type="date" value="${esc(B.start)}"></div><div><label for="b-end">End</label><input id="b-end" type="date" value="${esc(B.end)}"></div></div>
       ${B.start&&B.end&&B.end<B.start?`<p class="small" style="color:var(--bad);margin:0">The end date is before the start date.</p>`:""}
       ${B.forTrip?"":`<div class="two"><div><label for="b-title">Trip name</label><input id="b-title" value="${esc(B.title)}" placeholder="${esc(c?c.name+" trip":"e.g. Japan in spring")}"></div><div><label for="b-who">Who's going</label><input id="b-who" value="${esc(B.who)}" placeholder="Names, separated by commas"></div></div>`}
     </form>
+    ${c?bCityPicker(B,c):""}
     <h3 class="bh">What kind of trip</h3>
     <div class="choice three" role="radiogroup" aria-label="Trip style">
       ${[["famous","The classics","First visit: the places most people come for"],["offbeat","Hidden gems","Beautiful places with fewer crowds"],["mix","A mix","Some of both"]].map(([k,l,d])=>`<button role="radio" aria-checked="${(B.style||"famous")===k}" data-b-style="${k}"><strong>${l}</strong><span>${d}</span></button>`).join("")}
@@ -1589,6 +1593,25 @@ function bStep1(B,c,head){
   <div class="buildbar"><span class="small">${n?`<strong>${n}</strong> day${n===1?"":"s"}${c?" in "+esc(c.name):""}`:"Add a country and dates"}</span><button class="btn primary" data-b-step="2" ${ok?"":"disabled"}>Show me places</button></div>
   ${B.forTrip?"":`<p class="small muted" style="text-align:center">Already have a plan? <button class="linkbtn" data-home>Upload a trip file on the home page</button></p>`}
   </div>`;
+}
+const POPULAR=["Italy","Japan","Portugal","Spain","France","Greece","Iceland","United Arab Emirates","Thailand","United States","India","Norway"];
+// the country's main cities: Wikivoyage's "Cities" list (travellers' pick of the nine best), else the
+// best-known cities on Wikidata
+async function wdCities(c){
+  const hit=discCache("cities."+c.q); if(hit) return hit;
+  const rows=await withTimeout(sparql(`SELECT ?item ?l ?d ?coord ?links WHERE { VALUES ?t { wd:Q515 wd:Q1549591 wd:Q5119 wd:Q1637706 wd:Q200250 } ?item wdt:P31 ?t; wdt:P17 wd:${c.q}; wdt:P625 ?coord; wikibase:sitelinks ?links; rdfs:label ?l FILTER(lang(?l)="en") OPTIONAL{ ?item schema:description ?d FILTER(lang(?d)="en") } } ORDER BY DESC(?links) LIMIT 40`),25000);
+  const seen=new Set(), out=[];
+  rows.forEach(b=>{ const id=b.item.value.split("/").pop(); if(seen.has(id)) return; seen.add(id); const m=b.coord.value.match(/Point\(([-\d.e]+) ([-\d.e]+)\)/); if(!m) return;
+    out.push({name:b.l.value,desc:b.d?b.d.value:"",lat:+m[2],lon:+m[1],qid:id}); });
+  const v=out.slice(0,12); return v.length? discCache("cities."+c.q,v) : v;
+}
+function bCities(D){ const g=D&&D.guide; const list=((g&&g.cities)||[]).filter(x=>x.lat!=null); return list.length? list : (D&&D.wdCities)||[]; }
+function bCityPicker(B,c){
+  const D=S.bData&&S.bData.q===c.q? S.bData : null; const list=bCities(D); const chosen=B.cities||[];
+  const waiting=!D||(!list.length&&(D.busy||D.guideBusy));
+  return `<h3 class="bh">Which cities? <span class="small muted" style="font-weight:500;text-transform:none;letter-spacing:0">(pick any, or skip and see the whole country)</span></h3>
+    ${waiting?`<p class="small muted">Finding the main cities in ${esc(c.name)}…</p>`:!list.length?`<p class="small muted">Couldn't load the cities just now. You can carry on and pick places across ${esc(c.name)}.</p>`
+    :`<div class="citygrid">${list.slice(0,12).map(x=>{ const on=chosen.includes(x.name); return `<button class="citybtn ${on?"on":""}" aria-pressed="${on}" data-b-city="${esc(x.name)}"><span class="cb-top"><strong>${esc(x.name)}</strong><span class="cb-tick" aria-hidden="true">${on?"✓":"+"}</span></span>${x.desc?`<span class="small muted clamp2">${esc(cleanDesc(x.desc))}</span>`:""}</button>`; }).join("")}</div>`}`;
 }
 function bAreaOf(D,x){ const cs=(D&&D.guide&&D.guide.cities||[]).filter(c=>c.lat!=null); let best=null,bd=1e9; cs.forEach(c=>{ const d=kmBetween(c,x); if(d<bd){bd=d;best=c;} }); return best&&bd<70? best.name : ""; }
 function bList(B,D,tab){
@@ -1609,9 +1632,12 @@ function bStep2(B,c,D,head){
      ${(trips.scenic||[]).length?`<div class="section-head"><h3>Other well-known scenic routes</h3></div><div class="grid cols-2">${trips.scenic.slice(0,8).map(scenicCard).join("")}</div>`:""}
      ${it?itinDetail(it,B):""}`; }
   else { const all=bList(B,D,tab); const areas={}; all.forEach(x=>{ if(x.area) areas[x.area]=(areas[x.area]||0)+1; });
-    const top=Object.entries(areas).sort((a,b)=>b[1]-a[1]).slice(0,7).map(a=>a[0]); const area=top.includes(S.bArea)?S.bArea:"";
-    const list=all.filter(x=>!area||x.area===area);
-    body=`${top.length>1?`<div class="chips scrollx">${chip(!area,`data-b-area=""`,"All areas")}${top.map(a=>chip(area===a,`data-b-area="${esc(a)}"`,a)).join("")}</div>`:""}
+    const mine=(B.cities||[]).map(n=>bCities(D).find(x=>x.name===n)).filter(Boolean);
+    const top=[...new Set([...mine.map(x=>x.name),...Object.entries(areas).sort((a,b)=>b[1]-a[1]).map(a=>a[0])])].slice(0,Math.max(7,mine.length));
+    const area=S.bArea==="__mine"&&mine.length? "__mine" : top.includes(S.bArea)?S.bArea:"";
+    const nearMine=x=>mine.some(m=>m.name===x.name||kmBetween(m,x)<60);
+    const list=all.filter(x=>!area||(area==="__mine"?nearMine(x):x.area===area));
+    body=`${top.length>1||mine.length?`<div class="chips scrollx">${mine.length?chip(area==="__mine",`data-b-area="__mine"`,"Near your cities"):""}${chip(!area,`data-b-area=""`,"All of "+c.name)}${top.map(a=>chip(area===a,`data-b-area="${esc(a)}"`,a)).join("")}</div>`:""}
       ${list.length?`<div class="picks">${list.slice(0,40).map(x=>pickRow(x,B,c)).join("")}</div>`:`<div class="empty">${tab==="offbeat"?"Not many lesser-known places are recorded for this country yet. Try Must-see.":"No places found."}</div>`}`; }
   const nPick=picks.length+(B.itinPick?(B.itinPick.stops||[]).length:0), need=Math.ceil(nPick/per);
   return `<div class="builder"><div class="card">${head(2,"What would you like to see?",`The places most recommended in ${esc(c.name)}${(B.interests||[]).length?", with what you like first":""}. Add as many as you want.`)}
@@ -1733,6 +1759,10 @@ function createFromBuilder(){
 async function builderClick(el){
   const B=bState();
   if(el.dataset.bStyle){ B.style=el.dataset.bStyle; S.bTab=null; bSave(); render(); return true; }
+  if(el.dataset.bCountry){ B.country=el.dataset.bCountry; B.picks={}; B.cities=[]; B.itinPick=null; S.bItin=null; S.bArea=""; bSave(); const c=countryByName(B.country); if(c) bLoad(c); render(); return true; }
+  if(el.dataset.bCity){ const name=el.dataset.bCity; const c=countryByName(B.country); const x=bCities(S.bData).find(y=>y.name===name); B.cities=B.cities||[]; B.picks=B.picks||{};
+    const i=B.cities.indexOf(name); if(i>=0){ B.cities.splice(i,1); if(x) delete B.picks[pickKey(x)]; } else { B.cities.push(name); if(x) B.picks[pickKey(x)]={name:x.name,lat:x.lat,lon:x.lon}; }
+    S.bArea=B.cities.length?"__mine":""; bSave(); render(); return true; }
   if(el.dataset.bInt){ const a=B.interests=B.interests||[]; const k=el.dataset.bInt; const i=a.indexOf(k); if(i>=0) a.splice(i,1); else a.push(k); bSave(); render(); return true; }
   if(el.dataset.bFood){ B.food=el.dataset.bFood; bSave(); render(); return true; }
   if(el.dataset.bPace){ B.pace=el.dataset.bPace; bSave(); render(); return true; }
@@ -1758,7 +1788,7 @@ function builderInput(el){
   if(el.dataset&&el.dataset.bMove!==undefined&&S.bPlan){ const from=+el.dataset.from, to=+el.value, k=el.dataset.bMove; const d=S.bPlan.days; const i=d[from].stops.findIndex(p=>p.k===k); if(i>=0){ const [p]=d[from].stops.splice(i,1); d[to].stops.push(p); } render(); return true; }
   if(el.id==="b-road"){ const B0=bState(); B0.road=el.checked; if(!el.checked){ B0.itinPick=null; S.bItin=null; } bSave(); render(); return true; }
   const B=bState(); const map={"b-country":"country","b-title":"title","b-start":"start","b-end":"end","b-who":"who"}; const f=map[el.id]; if(!f) return false;
-  B[f]=el.value; if(f==="country"){ B.picks={}; B.itinPick=null; S.bItin=null; } bSave();
+  B[f]=el.value; if(f==="country"){ B.picks={}; B.cities=[]; B.itinPick=null; S.bItin=null; S.bArea=""; const c=countryByName(el.value); if(c) bLoad(c); } bSave();
   if(f==="country"||f==="start"||f==="end"){ const c=countryByName(B.country); if(f!=="country"||c||!el.value) render(); }
   return true;
 }

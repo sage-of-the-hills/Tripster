@@ -352,3 +352,12 @@ details.place>summary{font-weight:400;list-style:none;display:flex;gap:10px;alig
 .diet.opt{background:#DCEFE0;color:#1E4D2B}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .diet.opt{background:#24402C;color:#BFE8C8}}
 :root[data-theme="dark"] .diet.opt{background:#24402C;color:#BFE8C8}
+
+/* builder: country list and city picker */
+select#b-country{height:46px;appearance:auto}
+.citygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(46%,210px),1fr));gap:8px}
+.citybtn{text-align:left;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:14px;padding:10px 12px;min-height:64px;cursor:pointer;display:grid;gap:3px;align-content:start;font:inherit}
+.citybtn.on{border-color:var(--accent);background:var(--accent-soft)}
+.cb-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cb-tick{width:26px;height:26px;flex:none;border-radius:999px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700}
+.citybtn.on .cb-tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
