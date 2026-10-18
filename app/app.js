@@ -219,7 +219,7 @@ function viewOverview(t){
     </div>
     <div class="card">
       <div class="spread"><h3>Book next</h3><button class="btn" data-go="bookings">All bookings</button></div>
-      ${sorted.length? `<ul class="next-list" style="margin-top:10px">${sorted.slice(0,5).map(b=>`<li><span><strong>${esc(b.title)}</strong><br><span class="small muted">${esc([fmtDay(b.date,true),b.time].filter(Boolean).join(", "))}</span></span><span class="small ${b.bookBy&&b.bookBy<=today?"":"muted"}" style="${b.bookBy&&b.bookBy<=today?"color:var(--bad);font-weight:700":""}">${b.bookBy?"Book by "+esc(fmtDay(b.bookBy)):"No deadline"}</span></li>`).join("")}</ul>`
+      ${sorted.length? `<ul class="next-list" style="margin-top:10px">${sorted.slice(0,5).map(b=>`<li><span><strong>${esc(b.title)}</strong><br><span class="small muted">${esc([fmtDay(b.date,true),b.time].filter(Boolean).join(", "))}</span></span><span class="row" style="gap:8px;flex-wrap:nowrap"><span class="small ${b.bookBy&&b.bookBy<=today?"":"muted"}" style="${b.bookBy&&b.bookBy<=today?"color:var(--bad);font-weight:700":""}">${b.bookBy?"Book by "+esc(fmtDay(b.bookBy)):"No deadline"}</span>${bookLink(t,b,"btn sm")}</span></li>`).join("")}</ul>`
         : `<p class="muted">Everything is booked.</p>`}
     </div>
   </div>
@@ -231,6 +231,7 @@ function viewOverview(t){
      ${d.stay?`<div class="small" style="margin-top:6px">Night: ${esc((stays.find(s=>s.id===d.stay)||{}).name||d.stay)}</div>`:""}</button>`).join("")}</div>
   ${stays.length?`<div class="section-head"><h2>Where you're sleeping</h2>${cost?`<span class="mono small muted">Stays total ${money(cost,t.currency)}</span>`:""}</div>
   <div class="grid cols-3">${stays.map(s=>`<div class="card stripe ${statusOf("stay",s)}"><div class="spread"><h3>${esc(s.name)}</h3><span class="pill s-${statusOf("stay",s)}">${STATUS[statusOf("stay",s)]}</span></div><div class="small mono muted">${esc(fmtDay(s.checkIn,true))} → ${esc(fmtDay(s.checkOut,true))}</div></div>`).join("")}</div>`:""}
+  ${extrasBlock(t)}
   ${(t.notes||[]).length?`<div class="section-head"><h2>Good to know</h2></div><div class="grid cols-2">${t.notes.map(n=>`<div class="card"><h3>${esc(n.title)}</h3><p style="margin:0">${esc(n.body)}</p></div>`).join("")}</div>`:""}
   ${(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).length?`<div class="row" style="margin-top:14px">${t.links.filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).map(l=>`<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
   ${guideBlock(t)}
@@ -260,7 +261,7 @@ function viewDays(t){
     <div class="card" style="padding:14px 14px 6px">
       <div class="eyebrow" style="color:${esc(day.color||"var(--accent)")}">${esc(fmtDay(day.date,true))}</div>
       <h2 style="margin:2px 0 8px">${esc(day.title)}</h2>
-      ${bk.length?`<div class="row" style="margin-bottom:6px">${bk.map(b=>{const kind=(t.transport||[]).includes(b)?"transport":"booking"; const st=statusOf(kind,b); return `<span class="pill s-${st}" title="${esc(STATUS[st])}">${esc(b.title)}${b.time?" "+esc(b.time):""}</span>`}).join("")}</div>`:""}
+      ${bk.length?`<div class="row" style="margin-bottom:6px">${bk.map(b=>{const kind=(t.transport||[]).includes(b)?"transport":"booking"; const st=statusOf(kind,b); return st==="todo"? `<a class="pill s-${st}" title="To book: open the booking page" href="${esc(bookHref(t,b))}" target="_blank" rel="noopener">${esc(b.title)}${b.time?" "+esc(b.time):""} · Book ${ICON.ext}</a>` : `<span class="pill s-${st}" title="${esc(STATUS[st])}">${esc(b.title)}${b.time?" "+esc(b.time):""}</span>`}).join("")}</div>`:""}
       ${stay?`<div class="small" style="margin-bottom:6px">Night: <strong>${esc(stay.name)}</strong></div>`:""}
       ${dayWx(t,day)}
       <ol class="timeline">${day.steps.map(s=>{ const p=t.places[s.place]; const st=p&&isStay(t,s.place); const lc=lightColor(t,s.time);
@@ -295,6 +296,47 @@ function viewBookings(t){
   ${viewStays(t)}
   ${(t.checklist||[]).length?checklistBlock(t):""}`;
 }
+/* Booking links: the official page when the trip file has one, otherwise a search to find where to book.
+   A booking can also list other options (other restaurants for a dinner, say). */
+/* Optional extras: things you might add. They come from the trip file's "extras" list and from any
+   booking marked optional. "Add to a day" puts it in that day's plan; optional bookings then become
+   "To book". */
+function extraItems(t){
+  const inPlan=id=>(t.days||[]).some(d=>d.steps.some(s=>s.extra===id||s.booking===id));
+  const ex=(t.extras||[]).map(x=>({kind:"extra",id:x.id,title:x.title,when:x.when||"",date:x.date||"",time:x.time||"",notes:x.notes||"",url:x.url||"",options:x.options||[],place:x.place||"",added:inPlan(x.id)}));
+  const bk=(t.bookings||[]).filter(b=>statusOf("booking",b)==="optional"||(b.optional&&inPlan(b.id))).map(b=>({kind:"booking",id:b.id,title:b.title,when:b.when||(b.date?fmtDay(b.date,true):""),date:b.date||"",time:b.time||"",notes:b.notes||"",url:bookHref(t,b),official:!!b.url,options:b.options||[],place:b.place||"",added:inPlan(b.id),b}));
+  return [...ex,...bk];
+}
+function extrasBlock(t){
+  const items=extraItems(t); if(!items.length) return "";
+  const dayOpts=sel=>(t.days||[]).map(d=>`<option value="${esc(d.date)}" ${d.date===sel?"selected":""}>${esc(fmtDay(d.date,true))}</option>`).join("");
+  return `<div class="section-head"><h2>Optional extras</h2><span class="small muted">Not in the plan unless you add them</span></div>
+  <div class="grid cols-2">${items.map(x=>`<div class="card extra ${x.added?"on":""}">
+    <div class="spread"><h3>${esc(x.title)}</h3>${x.added?`<span class="pill s-booked">In the plan</span>`:`<span class="pill s-optional">Optional</span>`}</div>
+    ${x.when?`<div class="when">${esc(x.when)}</div>`:""}${x.notes?`<p class="small" style="margin:6px 0">${esc(x.notes)}</p>`:""}${bookOptions(x)}
+    <div class="row" style="margin-top:8px">${x.url?`<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">${x.kind==="booking"?(x.official?"Book":"Find where to book"):"Website"} ${ICON.ext}</a>`:""}
+      ${(t.days||[]).length?(x.added?`<button class="btn sm" data-extra-remove="${esc(x.id)}">Take out of the plan</button>`
+        :`<label class="sr" for="ex-${esc(x.id)}">Day for ${esc(x.title)}</label><select id="ex-${esc(x.id)}" class="field sm">${dayOpts(x.date)}</select><button class="btn sm primary" data-extra-add="${esc(x.id)}">Add to day</button>`):""}</div>
+  </div>`).join("")}</div>`;
+}
+function extraClick(el){
+  const t=trip(); if(!t) return false;
+  if(el.dataset.extraAdd){ const x=extraItems(t).find(y=>y.id===el.dataset.extraAdd); const sel=$("#ex-"+CSS.escape(el.dataset.extraAdd)); const d=x&&(t.days||[]).find(y=>y.date===(sel?sel.value:x.date)); if(!x||!d) return true;
+    const step={time:x.time||"",title:x.title}; if(x.place&&t.places[x.place]) step.place=x.place; if(x.kind==="booking"){ step.booking=x.id; x.b.optional=true; } else step.extra=x.id;
+    // the same stop at the same time (e.g. "Höfn, dinner") becomes this extra rather than a second line
+    const same=d.steps.findIndex(s=>x.time&&s.time===x.time&&step.place&&s.place===step.place&&!s.booking&&!s.extra);
+    if(same>=0){ step.was=d.steps[same].title; step.next=d.steps[same].next; d.steps[same]=step; }
+    else { const i=x.time? d.steps.findIndex(s=>s.time&&s.time>x.time) : -1; if(i>=0) d.steps.splice(i,0,step); else d.steps.push(step); }
+    persistTrip(t); if(x.kind==="booking") setStatus("booking",x.b,"todo"); render(); toast(`Added ${x.title} to ${fmtDay(d.date,true)}`); return true; }
+  if(el.dataset.extraRemove){ const id=el.dataset.extraRemove; (t.days||[]).forEach(d=>{ d.steps=d.steps.map(s=>(s.extra===id||s.booking===id)&&s.was? {time:s.time,title:s.was,place:s.place,next:s.next} : s).filter(s=>s.extra!==id&&s.booking!==id); });
+    const b=(t.bookings||[]).find(y=>y.id===id); persistTrip(t); if(b&&b.optional) setStatus("booking",b,"optional"); render(); toast("Taken out of the plan"); return true; }
+  return false;
+}
+function bookHref(t,b){ return b.url || "https://www.google.com/search?q="+encodeURIComponent([b.title,b.provider&&b.provider!==b.title?b.provider:"",t.region||"","book"].filter(Boolean).join(" ")); }
+function bookLink(t,b,cls){ const st=b.status; const label=b.url?(st==="booked"||st==="paid"?"Booking site":"Book"):"Find where to book";
+  return `<a class="${cls||"btn sm"}" href="${esc(bookHref(t,b))}" target="_blank" rel="noopener">${label} ${ICON.ext}</a>`; }
+function bookOptions(b){ const o=(b.options||[]).filter(x=>x&&x.title); if(!o.length) return "";
+  return `<details class="bkopts"><summary class="small">${o.length} other option${o.length===1?"":"s"}</summary><ul>${o.map(x=>`<li>${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>`:`<strong>${esc(x.title)}</strong>`}${x.note?` <span class="small muted">${esc(x.note)}</span>`:""}</li>`).join("")}</ul></details>`; }
 function bookingCard(t,kind,b,today){
   const st=statusOf(kind,b); const when=b.date? [fmtDay(b.date,true),b.time].filter(Boolean).join(", ") : (b.at? fmtWhen(b.at):"");
   const late=st==="todo"&&b.bookBy&&b.bookBy<=today;
@@ -302,7 +344,8 @@ function bookingCard(t,kind,b,today){
     <div class="spread"><div style="min-width:0"><h3>${esc(b.title)}</h3>${b.provider?`<div class="small muted">${esc(b.provider)}</div>`:""}</div><span class="pill s-${st}">${STATUS[st]}</span></div>
     ${when?`<div class="when">${esc(when)}${b.people?` · ${b.people} people`:""}</div>`:""}
     <dl class="kv">${b.where?`<dt>Where</dt><dd>${esc(b.where)}</dd>`:""}${b.ref?`<dt>Ref</dt><dd class="mono">${esc(b.ref)}</dd>`:""}${b.cost!=null&&b.cost!==""?`<dt>Cost</dt><dd>${money(b.cost,t.currency)}</dd>`:""}${b.bookBy&&st==="todo"?`<dt>Book by</dt><dd style="${late?"color:var(--bad);font-weight:700":""}">${esc(fmtDay(b.bookBy,true))}${late?" (overdue)":""}</dd>`:""}${b.until?`<dt>Return</dt><dd>${esc(fmtWhen(b.until))}</dd>`:""}${b.notes?`<dt>Notes</dt><dd>${esc(b.notes)}</dd>`:""}</dl>
-    <div class="spread" style="align-items:center">${statusControl(kind,b,st)}${b.url?`<a class="small" href="${esc(b.url)}" target="_blank" rel="noopener">Open booking site</a>`:""}</div></div>`;
+    ${bookOptions(b)}
+    <div class="spread" style="align-items:center">${statusControl(kind,b,st)}${kind==="booking"||b.url||st==="todo"?bookLink(t,Object.assign({},b,{status:st})):""}</div></div>`;
 }
 function statusControl(kind,b,st){
   const opts = kind==="check"? [] : ["todo","booked","paid","optional"];
@@ -964,6 +1007,8 @@ Rules:
 - "status" is todo, booked, paid or optional. Use booked or paid only for things I told you are booked.
 - Give each day 3 to 8 timed steps. "next" says how to reach the following step, e.g. "Drive 40 min".
 - Add "bookBy" dates for anything that sells out, and real booking links in "url".
+- Give every booking its official booking page in "url"; for meals, list other good restaurants in "options" ([{"title","url","note"}]).
+- Put nice-to-haves in "extras" ([{"id","title","when","date","time","notes","url"}]) or mark bookings "status":"optional", not in the days.
 - Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".`;
 function planBlock(){
   return `<div class="grid cols-3 plan">
@@ -1039,6 +1084,7 @@ async function moreClicks(el){
   if(await builderClick(el)) return true;
   if(await discoverClick(el)) return true;
   if(ideasClick(el)) return true;
+  if(extraClick(el)) return true;
   const t=trip();
   if(el.hasAttribute("data-copy-prompt")){ try{ await navigator.clipboard.writeText(PROMPT); toast("Prompt copied. Paste it into your AI assistant."); }catch(e){ toast("Copy isn't available here. Open the prompt and select it."); } return true; }
   if(el.hasAttribute("data-wx-refresh")){ if(t) ensureWx(t,true); return true; }
@@ -1354,7 +1400,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.14.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.15.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }

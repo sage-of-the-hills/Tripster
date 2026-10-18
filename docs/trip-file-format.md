@@ -52,9 +52,22 @@ Each has an `id` and a `status` of `todo`, `booked`, `paid` or `optional`.
 
 - **stays:** `name`, `address`, `place`, `checkIn`, `checkOut` (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`), `host`, `via`, `ref`, `cost` (number), `cancellation`, `notes`
 - **transport:** `kind` (`flight`, `car`, `train`, `ferry`, `bus`), `title`, `provider`, `at`, `until`, `pickup`, `dropoff` (place keys), `ref`, `notes`
-- **bookings:** `title`, `provider`, `date`, `time`, `people`, `where`, `url`, `cost`, `bookBy` (deadline), `ref`, `notes`
+- **bookings:** `title`, `provider`, `date`, `time`, `people`, `where`, `url` (the official booking page; without one Tripster offers a search to find where to book), `cost`, `bookBy` (deadline), `ref`, `notes`, `options` (other choices, each `{title, url, note}`, e.g. other restaurants for a dinner). Give `status: "optional"` to anything that's a nice-to-have: it is listed under *Optional extras* instead of the plan.
 
 Shared files may also carry `packed` (list of checklist ids already ticked).
+
+## extras
+
+Optional things that aren't in the day plans. Shown under *Optional extras* on the Overview, each with an *Add to day* button.
+
+```json
+"extras": [
+  { "id": "langoustine", "title": "Langoustine dinner in Höfn", "when": "29 Dec, after the ice cave", "date": "2026-12-29", "time": "17:15",
+    "notes": "Walk-in only.", "url": "http://www.pakkhus.is", "place": "HOFN" }
+]
+```
+
+`id` and `title` are required. `date` preselects the day, `time` places it in the day, `place` puts it on the map.
 
 ## checklist, notes, links
 

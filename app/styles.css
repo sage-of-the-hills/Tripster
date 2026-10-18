@@ -384,3 +384,13 @@ select#b-country{height:46px;appearance:auto}
 .calday.end:not(.start){border-radius:0 10px 10px 0}
 .calday.start:only-child{border-radius:10px}
 @media (max-width:640px){.calmonths{grid-template-columns:1fr}.calmonths .calmonth+.calmonth{display:none}}
+
+/* booking options and optional extras */
+.bkopts{margin:6px 0}
+.bkopts summary{cursor:pointer;font-weight:700;color:var(--accent)}
+.bkopts ul{margin:6px 0 0;padding-left:18px;display:grid;gap:4px;font-size:.9rem}
+.card.extra.on{border-color:var(--accent)}
+.card.extra .row{align-items:center}
+a.pill{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+a.pill svg{width:12px;height:12px}
+.btn.sm svg{width:12px;height:12px;vertical-align:-1px}
