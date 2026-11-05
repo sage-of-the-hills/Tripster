@@ -1,8 +1,9 @@
 /* Tripster service worker: keeps the app working offline and, where the
    browser allows, re-checks forecasts in the background for weather alerts.
    Raise VERSION whenever any file changes so phones pick up the update. */
-const VERSION = "2.16.0";
+const VERSION = "2.17.0";
 const CACHE = "tripster-" + VERSION;
+const MAPS = "tripster-maps"; // saved map tiles: kept across app updates
 const SHELL = [
   "./",
   "index.html",
@@ -28,18 +29,42 @@ const SHELL = [
   "icons/icon-512.png",
   "icons/maskable-512.png",
   "maps/iceland.jpg",
+  "vendor/maplibre-gl.js",
+  "vendor/maplibre-gl.css",
   "data/countries.json",
   "trips/index.json"
 ];
 
 importScripts("wx.js");
 
+/* Maps come from OpenFreeMap. Tiles are stored under a key without the weekly version in their
+   address, so maps saved before the trip still open after OpenFreeMap publishes new ones.
+   Style, fonts and icons are served from the saved copy at once and refreshed when there's signal. */
+const OFM = "https://tiles.openfreemap.org/";
+const TILE = /^https:\/\/tiles\.openfreemap\.org\/planet\/[^/]+\/(\d+)\/(\d+)\/(\d+)\.pbf/;
+async function mapFetch(req) {
+  const m = req.url.match(TILE);
+  if (m) {
+    const key = OFM + "planet/_/" + m[1] + "/" + m[2] + "/" + m[3] + ".pbf";
+    const hit = await caches.match(key); if (hit) return hit;
+    try {
+      const res = await fetch(req);
+      if (res.ok) { const b = await res.clone().blob(); caches.open(MAPS).then(c => c.put(key, new Response(b, { headers: { "content-type": "application/x-protobuf" } }))); }
+      return res;
+    } catch (err) { return new Response(null, { status: 204 }); } // no signal and not saved: an empty patch of map
+  }
+  const hit = await caches.match(req, { ignoreSearch: true });
+  const net = fetch(req).then(res => { if (res.ok) { const copy = res.clone(); caches.open(MAPS).then(c => c.put(req, copy)); } return res; });
+  if (hit) { net.catch(() => {}); return hit; }
+  return net.catch(() => new Response(null, { status: 504 }));
+}
+
 self.addEventListener("install", e => {
   // cache: "reload" skips the browser's own HTTP cache, so an update never stores yesterday's files
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => (k.startsWith("tripster-") || k.startsWith("trip-planner-")) && k !== CACHE && k !== "tripster-state").map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => (k.startsWith("tripster-") || k.startsWith("trip-planner-")) && k !== CACHE && k !== "tripster-state" && k !== MAPS).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {
   const req = e.request;
@@ -49,6 +74,7 @@ self.addEventListener("fetch", e => {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })));
     return;
   }
+  if (req.url.startsWith(OFM)) { e.respondWith(mapFetch(req)); return; }
   if (new URL(req.url).origin !== location.origin) return; // weather, search and Firebase data go straight to the network
   const url = new URL(req.url);
   const fresh = req.mode === "navigate" || url.pathname.endsWith(".json");

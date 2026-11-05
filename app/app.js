@@ -137,6 +137,182 @@ function niceStep(span){ const raw=span/6, mag=Math.pow(10,Math.floor(Math.log10
 function starPath(cx,cy,r){ let d=""; for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*.45:r; d+=(i?"L":"M")+(cx+rr*Math.cos(a)).toFixed(1)+","+(cy+rr*Math.sin(a)).toFixed(1);} return d+"Z"; }
 function isStay(t,key){ return (t.stays||[]).some(s=>s.place===key); }
 
+/* ---------- real maps ----------
+   The day map is drawn with MapLibre (kept inside the app) from OpenFreeMap's free OpenStreetMap
+   tiles. "Save maps for offline" downloads the whole trip area plus a corridor along every day's
+   roads into this device, so the map, the route and the blue location dot all work with no signal. */
+const OFM="https://tiles.openfreemap.org", OFM_STYLE=OFM+"/styles/liberty", MAPS_CACHE="tripster-maps";
+const GL={lib:null,loading:null,map:null,el:null,loaded:false,want:null,key:"",hot:null,markers:[],failed:false};
+function webglOK(){ try{ const c=document.createElement("canvas"); return !!(c.getContext("webgl2")||c.getContext("webgl")); }catch(e){ return false; } }
+function loadGL(){
+  if(GL.lib) return Promise.resolve(GL.lib);
+  if(GL.loading) return GL.loading;
+  GL.loading=new Promise((res,rej)=>{
+    if(!document.querySelector("link[data-gl]")){ const l=document.createElement("link"); l.rel="stylesheet"; l.href="vendor/maplibre-gl.css"; l.dataset.gl="1"; document.head.appendChild(l); }
+    const s=document.createElement("script"); s.src="vendor/maplibre-gl.js"; s.onload=()=>window.maplibregl? res(GL.lib=window.maplibregl) : rej(new Error("map library missing")); s.onerror=rej; document.head.appendChild(s);
+  });
+  GL.loading.catch(()=>{ GL.failed=true; GL.loading=null; });
+  return GL.loading;
+}
+function hashStr(s){ let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
+function kmBetween(a,b){ const r=Math.PI/180, dLat=(b[1]-a[1])*r, dLon=(b[0]-a[0])*r; const h=Math.sin(dLat/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dLon/2)**2; return 12742*Math.asin(Math.sqrt(h)); }
+function daySeq(t,day){ const P=t.places||{}; const r=(day.route&&day.route.length? day.route : day.steps.map(s=>s.place)).filter(k=>P[k]); return r.filter((k,i)=>i===0||k!==r[i-1]); }
+function straightLine(t,day){ return daySeq(t,day).map(k=>[t.places[k].lon,t.places[k].lat]); }
+function roadKey(t,day){ return "tp.road."+hashStr(straightLine(t,day).map(p=>p[0].toFixed(4)+","+p[1].toFixed(4)).join(";")); }
+function simplifyLine(pts,tol){ // Douglas–Peucker, so a day's road fits comfortably on the device
+  if(pts.length<3) return pts; const keep=new Uint8Array(pts.length); keep[0]=keep[pts.length-1]=1; const stack=[[0,pts.length-1]];
+  while(stack.length){ const [a,b]=stack.pop(); let best=0, idx=-1; const [x1,y1]=pts[a],[x2,y2]=pts[b], dx=x2-x1, dy=y2-y1, L=dx*dx+dy*dy;
+    for(let i=a+1;i<b;i++){ const [x,y]=pts[i]; let u=L? ((x-x1)*dx+(y-y1)*dy)/L : 0; u=Math.max(0,Math.min(1,u)); const ex=x1+u*dx-x, ey=y1+u*dy-y, d=ex*ex+ey*ey; if(d>best){best=d;idx=i;} }
+    if(idx>=0&&best>tol*tol){ keep[idx]=1; stack.push([a,idx],[idx,b]); } }
+  return pts.filter((_,i)=>keep[i]);
+}
+/* The real driving route for a day (from the free OSRM router), saved on the device once fetched.
+   Days with a flight or ferry leg keep straight lines. */
+async function fetchRoad(t,day){
+  const line=straightLine(t,day); if(line.length<2) return null;
+  const key=roadKey(t,day), hit=loadJSON(key); if(hit) return hit.length? hit : null;
+  for(let i=1;i<line.length;i++) if(kmBetween(line[i-1],line[i])>400) return null;
+  if(!navigator.onLine) return null;
+  try{
+    const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),15000);
+    const r=await fetch("https://router.project-osrm.org/route/v1/driving/"+line.map(p=>p[0].toFixed(5)+","+p[1].toFixed(5)).join("%3B")+"?overview=full&geometries=geojson",{signal:ctl.signal});
+    clearTimeout(tm); if(!r.ok) return null;
+    const j=await r.json(), g=j.routes&&j.routes[0]; if(!g||!g.geometry) return null;
+    let straight=0; for(let i=1;i<line.length;i++) straight+=kmBetween(line[i-1],line[i]);
+    if(g.distance/1000>straight*4+40){ saveJSON(key,[]); return null; } // the router went somewhere odd
+    const pts=simplifyLine(g.geometry.coordinates,0.00012).map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]);
+    saveJSON(key,pts); return pts;
+  }catch(e){ return null; }
+}
+function dayLine(t,day){ const r=loadJSON(roadKey(t,day)); return r&&r.length? r : straightLine(t,day); }
+
+function mountDayMap(){
+  const slot=$("#glslot"); if(!slot||GL.failed) return;
+  if(!webglOK()){ GL.failed=true; return; }
+  loadGL().then(()=>{ const s=$("#glslot"); const t=trip(); const day=t&&(t.days||[]).find(d=>d.date===S.day); if(s&&day) showDayMap(t,day,s); }).catch(()=>{});
+}
+function showDayMap(t,day,slot){
+  const ml=GL.lib, box=slot.closest(".mapbox");
+  if(!GL.el){ GL.el=document.createElement("div"); GL.el.className="glmap"; }
+  if(GL.el.parentNode!==slot) slot.appendChild(GL.el);
+  box.classList.add("gl-on");
+  GL.want={t,day};
+  if(!GL.map){
+    try{
+      const touch=matchMedia("(pointer:coarse)").matches;
+      GL.map=new ml.Map({container:GL.el, style:OFM_STYLE, center:[0,20], zoom:1, maxZoom:17, attributionControl:{compact:true}, cooperativeGestures:touch, fadeDuration:0});
+    }catch(e){ GL.failed=true; box.classList.remove("gl-on"); return; }
+    const m=GL.map;
+    m.addControl(new ml.NavigationControl({showCompass:false}),"top-right");
+    m.addControl(new ml.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:true,showUserLocation:true,fitBoundsOptions:{maxZoom:14}}),"top-right");
+    const fs=new ml.FullscreenControl(); m.addControl(fs,"top-right");
+    // full screen is for using the map on the road: one finger pans there
+    fs.on("fullscreenstart",()=>{ if(m.cooperativeGestures.isEnabled()) { GL.coop=true; m.cooperativeGestures.disable(); } });
+    fs.on("fullscreenend",()=>{ if(GL.coop) m.cooperativeGestures.enable(); });
+    m.addControl(new ml.ScaleControl({unit:"metric"}),"bottom-left");
+    m.on("load",()=>{ GL.loaded=true; const at=GL.el.querySelector(".maplibregl-ctrl-attrib"); if(at){ at.classList.remove("maplibregl-compact-show"); at.removeAttribute("open"); } drawDay(); });
+    m.on("error",()=>{}); // a missing tile with no signal is expected, not an error to show
+  }
+  requestAnimationFrame(()=>{ GL.map&&GL.map.resize(); });
+  if(GL.loaded) drawDay();
+}
+function drawDay(){
+  const m=GL.map, w=GL.want; if(!m||!w||!GL.loaded) return;
+  const {t,day}=w, P=t.places||{}, color=day.color||"#0B5F73";
+  if(!m.getSource("route")){
+    m.addSource("route",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+    m.addLayer({id:"route-casing",type:"line",source:"route",layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#fff","line-width":8,"line-opacity":.9}});
+    m.addLayer({id:"route-line",type:"line",source:"route",layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":color,"line-width":4.5}});
+  }
+  const key=t.id+"|"+day.date+"|"+daySeq(t,day).join(",")+"|"+color+"|"+(t.stays||[]).map(s=>s.place).join(",");
+  const setLine=pts=>m.getSource("route").setData({type:"Feature",geometry:{type:"LineString",coordinates:pts.length>1?pts:[]},properties:{}});
+  if(key!==GL.key){
+    GL.key=key; GL.hot=null;
+    setLine(dayLine(t,day)); m.setPaintProperty("route-line","line-color",color);
+    if(!loadJSON(roadKey(t,day))) fetchRoad(t,day).then(r=>{ if(r&&GL.key===key) setLine(r); });
+    GL.markers.forEach(mk=>mk.remove()); GL.markers=[];
+    const add=(key,html,cls)=>{ const p=P[key]; const el=document.createElement("div"); el.className="glpin "+cls; el.dataset.key=key; el.innerHTML=html; GL.markers.push(new GL.lib.Marker({element:el,anchor:"center"}).setLngLat([p.lon,p.lat]).addTo(m)); };
+    const pts=[];
+    (t.stays||[]).forEach(s=>{ const p=P[s.place]; if(!p||(s.id!==day.stay&&!day.steps.some(st=>st.place===s.place))) return; pts.push([p.lon,p.lat]); add(s.place,`<i aria-hidden="true">★</i><span>${esc(s.name)}</span>`,"stay"); });
+    let n=0; const seen={};
+    day.steps.forEach(s=>{ const p=P[s.place]; if(!p||isStay(t,s.place)||seen[s.place]) return; seen[s.place]=++n; pts.push([p.lon,p.lat]);
+      add(s.place,`<b style="background:${esc(color)}">${n}</b>${p.waypoint?"":`<span>${esc(p.name)}</span>`}`,"stop"); });
+    if(pts.length){ const b=new GL.lib.LngLatBounds(pts[0],pts[0]); pts.forEach(p=>b.extend(p)); dayLine(t,day).forEach(p=>b.extend(p));
+      m.fitBounds(b,{padding:{top:45,bottom:50,left:40,right:70},maxZoom:12,animate:false}); }
+  }
+  if(S.hot!==GL.hot){ GL.hot=S.hot;
+    GL.markers.forEach(mk=>mk.getElement().classList.toggle("hot",mk.getElement().dataset.key===S.hot));
+    const p=S.hot&&P[S.hot]; if(p) m.easeTo({center:[p.lon,p.lat],zoom:Math.max(m.getZoom(),11),duration:600}); }
+}
+
+/* ---- saving maps on the device ---- */
+function lon2x(lon,z){ return Math.floor((lon+180)/360*2**z); }
+function lat2y(lat,z){ const r=Math.max(-85,Math.min(85,lat))*Math.PI/180; return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*2**z); }
+function tileKey(z,x,y){ return OFM+"/planet/_/"+z+"/"+x+"/"+y+".pbf"; } // same key the service worker uses, whatever this week's tile version
+function mapSig(t){ return hashStr(JSON.stringify([Object.values(t.places||{}).map(p=>[p.lat,p.lon]),(t.days||[]).map(d=>daySeq(t,d))])); }
+function mapsRecord(t){ return loadJSON("tp.maps."+t.id); }
+async function planMaps(t){
+  const P=Object.values(t.places||{}).filter(p=>isFinite(p.lat)&&isFinite(p.lon)); if(!P.length) return {tiles:[],raster:[]};
+  const lines=[]; for(const d of t.days||[]){ const r=await fetchRoad(t,d); if(r) lines.push(r); else { const s=straightLine(t,d); for(let i=1;i<s.length;i++) if(kmBetween(s[i-1],s[i])<=150) lines.push([s[i-1],s[i]]); } }
+  const lats=P.map(p=>p.lat), lons=P.map(p=>p.lon);
+  const n=Math.max(...lats)+.3, s=Math.min(...lats)-.3, w=Math.min(...lons)-.5, e=Math.max(...lons)+.5;
+  const box=z=>[lon2x(w,z),lat2y(n,z),lon2x(e,z),lat2y(s,z)], count=z=>{ const [x0,y0,x1,y1]=box(z); return (x1-x0+1)*(y1-y0+1); };
+  let top=10; while(top>4&&count(top)>1500) top--;
+  const set=new Set(), raster=[];
+  const add=(z,x,y)=>{ const N=2**z; if(y<0||y>=N) return; set.add(z+"/"+(((x%N)+N)%N)+"/"+y); };
+  for(let z=0;z<=top;z++){ const [x0,y0,x1,y1]=box(z); for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ add(z,x,y); if(z<=6) raster.push(OFM+"/natural_earth/ne2sr/"+z+"/"+x+"/"+y+".png"); } }
+  for(let z=top+1;z<=14;z++){
+    lines.forEach(g=>{ for(let i=1;i<g.length;i++){ const a=g[i-1], b=g[i], steps=Math.max(1,Math.ceil(Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]))*2**z/360*3));
+      for(let k=0;k<=steps;k++){ const x=lon2x(a[0]+(b[0]-a[0])*k/steps,z), y=lat2y(a[1]+(b[1]-a[1])*k/steps,z); for(let dx=-1;dx<=1;dx++) for(let dy=-1;dy<=1;dy++) add(z,x+dx,y+dy); } } });
+    const rad=z<=12?1:z===13?2:3;
+    P.forEach(p=>{ const x=lon2x(p.lon,z), y=lat2y(p.lat,z); for(let dx=-rad;dx<=rad;dx++) for(let dy=-rad;dy<=rad;dy++) add(z,x+dx,y+dy); });
+  }
+  return {tiles:[...set],raster};
+}
+function fmtMB(b){ return b>=1e6? (b/1e6).toFixed(b>=1e7?0:1)+" MB" : Math.max(1,Math.round(b/1e3))+" KB"; }
+async function saveMaps(t){
+  if(S.mapDl&&S.mapDl.running) return;
+  if(!navigator.onLine){ toast("Connect to the internet (Wi-Fi is best) to save maps."); return; }
+  if(!window.caches){ toast("This browser can't save maps for offline."); return; }
+  const dl=S.mapDl={trip:t.id,running:true,done:0,total:0,bytes:0,fail:0,phase:"Working out the area…"}; render();
+  try{
+    if(navigator.storage&&navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+    const cache=await caches.open(MAPS_CACHE);
+    const get=async(url,key)=>{ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); const b=await r.blob(); await cache.put(key||url,new Response(b,{headers:{"content-type":r.headers.get("content-type")||"application/octet-stream"}})); dl.bytes+=b.size; return b; };
+    const style=JSON.parse(await (await get(OFM_STYLE)).text());
+    const src=style.sources&&style.sources.openmaptiles, tj=JSON.parse(await (await get(src.url)).text()), tileURL=tj.tiles[0];
+    const extras=[];
+    (Array.isArray(style.sprite)? style.sprite.map(s=>s.url) : [style.sprite]).filter(Boolean).forEach(u=>[".json",".png","@2x.json","@2x.png"].forEach(x=>extras.push(u+x)));
+    const stacks=new Set(); style.layers.forEach(l=>{ const f=l.layout&&l.layout["text-font"]; if(Array.isArray(f)&&f.every(x=>typeof x==="string")) stacks.add(f.join(",")); });
+    stacks.forEach(st=>["0-255","256-511","8192-8447"].forEach(r=>extras.push(style.glyphs.replace("{fontstack}",st.split(",").map(encodeURIComponent).join(",")).replace("{range}",r))));
+    const plan=await planMaps(t);
+    const jobs=[...extras.map(u=>({url:u})), ...plan.raster.map(u=>({url:u})), ...plan.tiles.map(k=>{ const [z,x,y]=k.split("/"); return {url:tileURL.replace("{z}",z).replace("{x}",x).replace("{y}",y), key:tileKey(z,x,y)}; })];
+    dl.total=jobs.length; dl.phase="Saving maps"; paintDl();
+    let i=0;
+    const worker=async()=>{ while(i<jobs.length&&!dl.cancel){ const j=jobs[i++];
+      try{ if(!(await cache.match(j.key||j.url))) await get(j.url,j.key); }catch(e){ dl.fail++; }
+      dl.done++; if(dl.done%25===0) paintDl(); } };
+    await Promise.all(Array.from({length:6},worker));
+    if(dl.cancel){ dl.running=false; S.mapDl=null; toast("Stopped. The maps saved so far stay on this device."); render(); return; }
+    const prev=mapsRecord(t);
+    saveJSON("tp.maps."+t.id,{at:Date.now(),tiles:plan.tiles.length,bytes:(prev&&prev.bytes||0)+dl.bytes,sig:mapSig(t),fail:dl.fail});
+    dl.running=false; S.mapDl=null;
+    toast(dl.fail? `Maps saved, but ${dl.fail} pieces didn't download. Tap Save again on Wi-Fi to fill the gaps.` : "Maps saved. They now work with no signal.");
+  }catch(e){ dl.running=false; S.mapDl=null; toast("Couldn't reach the map service. Try again on Wi-Fi."); }
+  render();
+}
+function paintDl(){ const d=S.mapDl; if(!d) return; document.querySelectorAll("[data-mapdl]").forEach(el=>{ const pct=d.total? Math.round(d.done/d.total*100):0;
+  el.innerHTML=`<span>${esc(d.phase)}${d.total?` · ${pct}% · ${fmtMB(d.bytes)}`:""}</span><span class="dlbar"><i style="width:${pct}%"></i></span><button class="linkbtn" data-maps-cancel>Stop</button>`; }); }
+function mapsStatus(t,compact){
+  const d=S.mapDl;
+  if(d&&d.running&&d.trip===t.id) return `<div class="mapdl" data-mapdl></div>`;
+  const r=mapsRecord(t);
+  if(!r) return compact? `<span>Not saved for use without signal yet.</span> <button class="linkbtn" data-maps-save>Save maps for offline</button>` : "";
+  const stale=r.sig!==mapSig(t);
+  if(stale) return `<span>The plan changed since the maps were saved.</span> <button class="linkbtn" data-maps-save>Update offline maps</button>`;
+  return `<span>${ICON.offline} Saved for offline ${esc(new Date(r.at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}))}${r.bytes?` · ${fmtMB(r.bytes)}`:""}. The blue dot shows where you are, even with no signal.</span>`;
+}
+
 /* ---------- daylight ---------- */
 function mins(hm){ if(!hm||!/^\d{1,2}:\d{2}/.test(hm)) return null; const [h,m]=hm.split(":").map(Number); return h*60+m; }
 function lightColor(t,time){ const m=mins(time); const dl=t.daylight; if(m==null||!dl) return null; const up=mins(dl.sunrise), dn=mins(dl.sunset);
@@ -185,7 +361,8 @@ function renderNow(){
   ensureTripSub(t);
   if(!views[S.tab]) S.tab="overview";
   v.innerHTML=views[S.tab](t);
-  if(S.tab==="days") sizeMap();
+  if(S.tab==="days"){ sizeMap(); mountDayMap(); }
+  if(S.mapDl) paintDl();
   if(S.tab==="money") setTimeout(expEachText,0);
 }
 function emptyState(){ return `<div class="empty">No trip open.</div>`; }
@@ -257,8 +434,8 @@ function viewDays(t){
   return `
   <div class="daypicker" role="group" aria-label="Choose a day">${days.map(d=>`<button data-day="${esc(d.date)}" aria-pressed="${d.date===S.day}"><i style="background:${esc(d.color||"var(--accent)")}"></i>${esc(fmtDay(d.date,true))}</button>`).join("")}</div>
   <div class="dayview">
-    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="mapnote">Numbers follow the day's order. Stars are where you sleep. Lines are simplified, not exact roads.</div></div>
-      <div class="row" style="margin-top:10px">${link?`<a class="btn primary" href="${link}" target="_blank" rel="noopener">${ICON.map} Open the day in Google Maps</a>`:""}<button class="btn" data-go="offline">Offline maps</button></div>
+    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="glslot" id="glslot"></div><div class="mapnote"><span class="svgonly">Numbers follow the day's order. Stars are where you sleep. Lines are simplified, not exact roads.</span><span class="glonly">${mapsStatus(t,true)}</span></div></div>
+      <div class="row" style="margin-top:10px">${link?`<a class="btn primary" href="${link}" target="_blank" rel="noopener">${ICON.map} Open the day in Google Maps</a>`:""}<button class="btn" data-go="offline">${ICON.offline} Offline maps</button></div>
     </div>
     <div class="card" style="padding:14px 14px 6px">
       <div class="eyebrow" style="color:${esc(day.color||"var(--accent)")}">${esc(fmtDay(day.date,true))}</div>
@@ -283,7 +460,7 @@ function viewDays(t){
 }
 function sizeMap(){
   const box=$("#mapbox"); if(!box) return; const px=box.clientWidth; if(!px) return;
-  if(Math.abs(px-(S.mapPx||0))>8){ S.mapPx=px; const t=trip(), day=(t.days||[]).find(d=>d.date===S.day); box.querySelector("svg").outerHTML=mapSVG(t,day,px); }
+  if(Math.abs(px-(S.mapPx||0))>8){ S.mapPx=px; const t=trip(), day=(t.days||[]).find(d=>d.date===S.day), svg=box.querySelector(":scope > svg"); if(svg) svg.outerHTML=mapSVG(t,day,px); }
 }
 
 function viewBookings(t){
@@ -384,15 +561,20 @@ function regions(t){
   return out;
 }
 function viewOffline(t){
-  const rs=regions(t);
+  const rs=regions(t), r=mapsRecord(t), d=S.mapDl&&S.mapDl.running&&S.mapDl.trip===t.id;
   return `<div class="grid cols-2">
    <div class="card"><h2 style="margin-bottom:6px">Maps without signal</h2>
-    <p style="margin-top:0">Download these areas in the Google Maps app before you fly, on Wi-Fi. Navigation, search and directions then work with no signal.</p>
-    <ol class="steps"><li>Open each link below in the Google Maps app.</li><li>Tap your profile picture, then <strong>Offline maps</strong>, then <strong>Select your own map</strong>.</li><li>Fit the blue box around the area and tap <strong>Download</strong>. One box can cover a large region.</li><li>Downloaded maps expire after about a year and update on Wi-Fi.</li></ol>
-    <ul class="next-list" style="margin-top:12px">${rs.map(r=>`<li><span>${esc(r.label)}<br><span class="small muted">${esc(r.p.name)}</span></span><a class="btn" href="${gmapsPlace(r.p)}" target="_blank" rel="noopener">${ICON.map} Open area</a></li>`).join("")}</ul>
+    <p style="margin-top:0">Save this trip's maps in Tripster before you fly, on Wi-Fi. The day maps, the roads you'll drive, every stop and the blue dot showing where you are then work anywhere, with no signal.</p>
+    <p class="small muted" style="margin-top:0">Tripster saves the whole trip area, plus close-up detail along each day's roads and around every place: usually a few tens of MB. If you change the plan, save again and only the new areas download.</p>
+    <div class="offline-maps">${d? `<div class="mapdl" data-mapdl></div>` : r? `<p style="margin:0 0 10px">${mapsStatus(t,false)}</p><div class="row"><button class="btn" data-maps-save>${r.sig!==mapSig(t)?"Update offline maps":"Check for missing pieces"}</button></div>` : `<div class="row"><button class="btn primary" data-maps-save>${ICON.offline} Save maps for offline</button></div>`}</div>
+    <p class="small muted">To check, turn on flight mode and open the Days tab. On a phone, add Tripster to your home screen so the saved maps aren't cleared.</p>
+    <details style="margin-top:12px"><summary><strong>Spoken turn-by-turn directions with no signal</strong></summary>
+    <p class="small">Tripster shows where you are on the map but doesn't speak directions. For that, also save these areas in Google Maps:</p>
+    <ol class="steps"><li>Open each link below in the Google Maps app.</li><li>Tap your profile picture, then <strong>Offline maps</strong>, then <strong>Select your own map</strong>.</li><li>Fit the blue box around the area and tap <strong>Download</strong>. One box can cover a large region.</li></ol>
+    <ul class="next-list" style="margin-top:12px">${rs.map(r=>`<li><span>${esc(r.label)}<br><span class="small muted">${esc(r.p.name)}</span></span><a class="btn" href="${gmapsPlace(r.p)}" target="_blank" rel="noopener">${ICON.map} Open area</a></li>`).join("")}</ul></details>
    </div>
    <div class="card"><h2 style="margin-bottom:6px">This app without signal</h2>
-    <p style="margin-top:0">${S.swReady?"This app is saved on this device. Trips, day maps, timelines and bookings all open with no connection. Only the Google Maps links need signal or offline areas.":"Open the app once with a connection and it saves itself for offline use. Then trips, maps and bookings open with no signal."}</p>
+    <p style="margin-top:0">${S.swReady?"This app is saved on this device. Trips, timelines and bookings all open with no connection, and so do day maps once you've saved them.":"Open the app once with a connection and it saves itself for offline use. Then trips, maps and bookings open with no signal."}</p>
     ${installCard()}
     <h3 style="margin:16px 0 6px">Full copies</h3>
     <p style="margin-top:0" class="small">For yourself or someone you fully trust: these include bookings, addresses and references. To show friends where you went, use Share trip story on the Overview instead.</p>
@@ -1135,6 +1317,8 @@ async function moreClicks(el){
   if(await discoverClick(el)) return true;
   if(ideasClick(el)) return true;
   if(extraClick(el)) return true;
+  if(el.hasAttribute("data-maps-save")){ const t=trip(); if(t) saveMaps(t); return true; }
+  if(el.hasAttribute("data-maps-cancel")){ if(S.mapDl) S.mapDl.cancel=true; return true; }
   if(el.hasAttribute("data-reset-open")){ S.reset={}; S.screen="reset"; render(); window.scrollTo({top:0}); return true; }
   if(el.hasAttribute("data-reset-go")){ doReset(); return true; }
   if(el.hasAttribute("data-reset-finish")){ location.href=location.pathname; return true; }
@@ -1453,7 +1637,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.16.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.17.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -2368,7 +2552,7 @@ document.addEventListener("click", async e=>{
   if(el.hasAttribute("data-load-paste")) return loadTripText($("#paste-in").value);
   if(el.dataset.copy!==undefined || el.hasAttribute("data-copy-template")){ const text=el.hasAttribute("data-copy-template")?JSON.stringify(TEMPLATE,null,2):el.dataset.copy;
     try{ await navigator.clipboard.writeText(text); toast("Copied"); }catch(err){ toast("Copy isn't available here. Select the text instead."); } return; }
-  if(el.dataset.key!==undefined && el.closest("#view")){ S.hot = S.hot===el.dataset.key? null : el.dataset.key; render(); const li=document.querySelector(`.timeline li[data-key="${CSS.escape(S.hot||"")}"]`); if(li&&el.tagName==="g") li.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+  if(el.dataset.key!==undefined && el.closest("#view")){ S.hot = S.hot===el.dataset.key? null : el.dataset.key; render(); const li=document.querySelector(`.timeline li[data-key="${CSS.escape(S.hot||"")}"]`); if(li&&(el.tagName==="g"||el.classList.contains("glpin"))) li.scrollIntoView({block:"nearest",behavior:"smooth"}); }
 });
 document.addEventListener("input", e=>{ if(e.target&&e.target.id==="exp-amt") expEachText(); });
 document.addEventListener("submit", e=>{ const f=e.target; e.preventDefault(); onSubmit(f); });
