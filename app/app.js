@@ -150,6 +150,7 @@ const LOGO='<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height=
 function netPill(){ return `<span class="netpill ${navigator.onLine?"on":""}" title="${navigator.onLine?"Online":"Offline: trips, maps and saved forecasts still work"}"><i></i>${navigator.onLine?"Online":"Offline"}</span>`; }
 function renderHeader(){
   const top=$("#top"), t=trip();
+  if(S.screen==="reset"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>Tripster</span></button>${netPill()}</div>`; return; }
   if(S.screen==="story"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>Tripster</span></button>${netPill()}</div>`; return; }
   if(S.screen==="record"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
   if(S.screen==="builder"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>All trips</span></button>${netPill()}</div>`; return; }
@@ -177,6 +178,7 @@ function renderNow(){
   if(S.screen==="builder"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewBuilder(); return; }
   if(S.screen==="record"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewRecord(); return; }
   if(S.screen==="story"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewStory(); return; }
+  if(S.screen==="reset"){ tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewReset(); return; }
   if(S.screen==="home"||!t){ S.screen="home"; tabs.hidden=true; document.body.classList.add("home"); v.innerHTML=viewHome(); return; }
   tabs.hidden=false; document.body.classList.remove("home"); renderTabs();
   const views={overview:viewOverview,days:viewDays,weather:viewWeather,explore:viewExplore,bookings:viewBookings,money:viewMoney,offline:viewOffline};
@@ -1037,6 +1039,53 @@ function planBlock(){
     </ul>
     <pre class="code">${esc(JSON.stringify(TEMPLATE,null,2))}</pre></details>`;
 }
+/* Start fresh: wipe this device, and for a signed-in account, delete every trip the account planned
+   (with its ticks, expenses and change log), its trip stories and its saved name. The sign-in itself stays.
+   Trips you were only part of can't be deleted by you; they stay until their planner removes you. */
+function viewReset(){
+  const u=CLOUD.user&&verified()? CLOUD.user : null; const me=myEmail();
+  const planned=Object.entries(S.index||{}).filter(([id,x])=>x.owner===me);
+  const partOf=Object.entries(S.index||{}).filter(([id,x])=>x.owner!==me);
+  const local=Object.values(allTrips()).filter(t=>!(S.index||{})[t.id]);
+  const R=S.reset||{};
+  if(R.done) return `<div class="card" style="max-width:640px"><h2 style="margin-top:0">All cleared</h2><p>${esc(R.done)}</p><div class="row"><button class="btn primary" data-reset-finish>Back to a fresh Tripster</button></div></div>`;
+  return `<div class="card" style="max-width:720px"><div class="eyebrow">Start fresh</div><h2 style="margin:4px 0 10px">Reset Tripster${u?" for "+esc(u.email):" on this device"}</h2>
+    <p>This removes:</p>
+    <ul class="small" style="line-height:1.6">
+      <li><strong>Everything on this device:</strong> ${local.length+Object.keys(S.index||{}).length} trip${local.length+Object.keys(S.index||{}).length===1?"":"s"}, booking ticks, expenses, saved weather, trip stories you kept, your name and settings.</li>
+      ${u?`<li><strong>From your account:</strong> ${planned.length?`the ${planned.length} trip${planned.length===1?"":"s"} you planned (${planned.map(([,x])=>esc(x.summary&&x.summary.title||"trip")).join(", ")}), with their ticks, expenses and change log. <strong>They disappear for everyone you shared them with too.</strong>`:"no trips you planned."} Your trip story links stop working.</li>`:`<li>You're not signed in, so nothing online is touched.</li>`}
+      ${u&&partOf.length?`<li><strong>Not removed:</strong> ${partOf.map(([,x])=>esc(x.summary&&x.summary.title||"trip")).join(", ")}, which someone else planned. Ask them to take you off it.</li>`:""}
+    </ul>
+    ${u?`<p class="small muted">Your sign-in (${esc(u.email)} and password) stays, so you can start again straight away.</p>`:""}
+    <p class="small"><strong>This can't be undone.</strong> To keep a copy first, use <em>Save backup</em> on the home page, or <em>Export full trip file</em> inside a trip.</p>
+    <div class="form" style="max-width:340px"><div><label for="reset-confirm">Type RESET to confirm</label><input id="reset-confirm" autocomplete="off" value=""></div></div>
+    ${R.busy?`<p class="small">${esc(R.busy)}</p>`:""}${R.error?`<p class="small" style="color:var(--bad)">${esc(R.error)}</p>`:""}
+    <div class="row" style="margin-top:12px"><button class="btn danger" data-reset-go ${R.busy?"disabled":""}>Delete everything and start fresh</button><button class="btn" data-home>Cancel</button></div></div>`;
+}
+async function doReset(){
+  const box=$("#reset-confirm"); if(!box||box.value.trim().toUpperCase()!=="RESET"){ S.reset={error:"Type RESET in the box to confirm."}; render(); return; }
+  const me=myEmail(); let removed=0, failed=0;
+  if(CLOUD.ready&&CLOUD.user&&verified()){
+    const {fs,db}=CLOUD; S.reset={busy:"Deleting your trips online…"}; render();
+    Object.keys(CLOUD.subs||{}).forEach(k=>{ try{ CLOUD.subs[k](); }catch(e){} delete CLOUD.subs[k]; }); if(CLOUD.tripSub){ try{ CLOUD.tripSub(); }catch(e){} CLOUD.tripSub=null; }
+    const planned=Object.entries(S.index||{}).filter(([id,x])=>x.owner===me).map(([id])=>id);
+    for(const id of planned){
+      try{
+        // children first (the rules check the trip's record), then the trip, then its record
+        for(const sub of ["status","expenses","activity"]){ try{ const snap=await fs.getDocs(fs.collection(db,"trips",id,sub)); await Promise.all(snap.docs.map(d=>fs.deleteDoc(d.ref).catch(()=>{}))); }catch(e){} }
+        await fs.deleteDoc(fs.doc(db,"trips",id)).catch(()=>{});
+        await fs.deleteDoc(fs.doc(db,"tripIndex",id)); removed++;
+      }catch(e){ failed++; }
+    }
+    const sids=Object.values(loadJSON("ts.storyIds")||{}); for(const sid of sids){ await fs.deleteDoc(fs.doc(db,"stories",sid)).catch(()=>{}); }
+    try{ await CLOUD.am.updateProfile(CLOUD.user,{displayName:""}); }catch(e){}
+  }
+  S.reset={busy:"Clearing this device…"}; render();
+  try{ Object.keys(localStorage).filter(k=>/^(tp|ts)\./.test(k)).forEach(k=>localStorage.removeItem(k)); sessionStorage.clear(); }catch(e){}
+  try{ if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.filter(k=>!/shell|tripster-v/i.test(k)).map(k=>caches.delete(k))); } }catch(e){}
+  S.reset={done: (removed?`Deleted ${removed} trip${removed===1?"":"s"} from your account and `:"")+"cleared everything on this device."+(failed?` ${failed} trip${failed===1?"":"s"} couldn't be deleted online; check your connection and run Start fresh again.`:"")};
+  render();
+}
 function viewHome(){
   const all=allTrips(), today=todayISO();
   const ids=Object.keys(all).sort((a,b)=>(all[a].start||"").localeCompare(all[b].start||""));
@@ -1063,6 +1112,7 @@ function viewHome(){
       <span class="dot">·</span><button class="linkbtn" data-save="backup">Save backup</button>
       <span class="dot">·</span><label class="linkbtn" for="backup-in" style="cursor:pointer">Restore backup</label><input type="file" id="backup-in" accept=".json,application/json" hidden>
       <span class="dot">·</span><button class="linkbtn" data-alerts>Weather alerts: ${S.alertsOn?"on":"off"}</button>
+      <span class="dot">·</span><button class="linkbtn" data-reset-open>Start fresh</button>
       <p class="small muted" style="flex-basis:100%;margin:6px 0 0">Trips are saved on this device${fbConfig()?"; shared trips also sync to your group":""}. Tripster goes online only for weather, places, travel guides${fbConfig()?" and shared trips":""}.</p>
     <p class="small muted" style="margin:8px 0 0">Tripster ${APP_VERSION}</p></footer>`;
 }
@@ -1085,6 +1135,9 @@ async function moreClicks(el){
   if(await discoverClick(el)) return true;
   if(ideasClick(el)) return true;
   if(extraClick(el)) return true;
+  if(el.hasAttribute("data-reset-open")){ S.reset={}; S.screen="reset"; render(); window.scrollTo({top:0}); return true; }
+  if(el.hasAttribute("data-reset-go")){ doReset(); return true; }
+  if(el.hasAttribute("data-reset-finish")){ location.href=location.pathname; return true; }
   const t=trip();
   if(el.hasAttribute("data-copy-prompt")){ try{ await navigator.clipboard.writeText(PROMPT); toast("Prompt copied. Paste it into your AI assistant."); }catch(e){ toast("Copy isn't available here. Open the prompt and select it."); } return true; }
   if(el.hasAttribute("data-wx-refresh")){ if(t) ensureWx(t,true); return true; }
@@ -1400,7 +1453,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.15.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.16.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }

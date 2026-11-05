@@ -394,3 +394,7 @@ select#b-country{height:46px;appearance:auto}
 a.pill{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 a.pill svg{width:12px;height:12px}
 .btn.sm svg{width:12px;height:12px;vertical-align:-1px}
+
+/* destructive action */
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.danger:disabled{opacity:.5}

@@ -64,7 +64,8 @@ service cloud.firestore {
 
       match /status/{key} {
         allow read: if hasFullAccess(tripId);
-        allow write: if hasFullAccess(tripId) && request.resource.data.by == me();
+        allow create, update: if hasFullAccess(tripId) && request.resource.data.by == me();
+        allow delete: if isPlanner(tripId);
       }
       match /expenses/{expenseId} {
         allow read: if hasFullAccess(tripId);
@@ -76,6 +77,7 @@ service cloud.firestore {
       match /activity/{entryId} {
         allow read: if hasFullAccess(tripId);
         allow create: if hasFullAccess(tripId) && request.resource.data.by == me();
+        allow delete: if isPlanner(tripId);
       }
     }
   }
