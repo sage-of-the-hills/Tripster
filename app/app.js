@@ -127,15 +127,18 @@ function mapSVG(t, day, pxW){
   // numbered stops for a day
   if(day){ let n=0; const seen={};
     day.steps.forEach((s,i)=>{ const p=places[s.place]; if(!p||isStay(t,s.place)) return; if(seen[s.place]==null){ seen[s.place]=++n; } });
-    Object.entries(seen).forEach(([key,num])=>{ const p=places[key]; const [x,y]=P.p(p.lat,p.lon); const hot=S.hot===key;
-      parts.push(`<g data-key="${esc(key)}" style="cursor:pointer"><circle cx="${x}" cy="${y}" r="${(hot?15:12)*k}" fill="${esc(day.color||"#0B5F73")}" stroke="#fff" stroke-width="${2.5*k}"/><text x="${x}" y="${y+4.5*k}" text-anchor="middle" style="font:700 ${12*k}px var(--body)" fill="#fff">${num}</text></g>`);
-      if(!p.waypoint){ const L=x>vx+w*0.62; parts.push(`<text class="maplabel" x="${L?x-18*k:x+16*k}" y="${y+4*k}" text-anchor="${L?"end":"start"}" style="font-size:${12.5*k}px;stroke-width:${3.5*k}px">${esc(p.name)}</text>`); } });
+    Object.entries(seen).forEach(([key,num])=>{ const p=places[key]; const [x,y]=P.p(p.lat,p.lon); const hot=S.hot===key, mb=isMaybe(day,key), col=esc(day.color||"#0B5F73");
+      parts.push(mb? `<g data-key="${esc(key)}" style="cursor:pointer"><circle cx="${x}" cy="${y}" r="${(hot?15:12)*k}" fill="#fff" stroke="${col}" stroke-width="${2.5*k}" stroke-dasharray="${4*k} ${2.5*k}"/><text x="${x}" y="${y+4.5*k}" text-anchor="middle" style="font:700 ${12*k}px var(--body)" fill="${col}">${num}</text></g>`
+        : `<g data-key="${esc(key)}" style="cursor:pointer"><circle cx="${x}" cy="${y}" r="${(hot?15:12)*k}" fill="${col}" stroke="#fff" stroke-width="${2.5*k}"/><text x="${x}" y="${y+4.5*k}" text-anchor="middle" style="font:700 ${12*k}px var(--body)" fill="#fff">${num}</text></g>`);
+      if(!p.waypoint){ const L=x>vx+w*0.62; parts.push(`<text class="maplabel" x="${L?x-18*k:x+16*k}" y="${y+4*k}" text-anchor="${L?"end":"start"}" style="font-size:${12.5*k}px;stroke-width:${3.5*k}px${mb?";font-style:italic":""}">${esc(p.name)}${mb?" (maybe)":""}</text>`); } });
   }
   return `<svg viewBox="${vx.toFixed(1)} ${vy.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" role="img" aria-label="Map of ${day?esc(day.title):"the whole trip"}">${parts.join("")}</svg>`;
 }
 function niceStep(span){ const raw=span/6, mag=Math.pow(10,Math.floor(Math.log10(raw))); return [1,2,5,10].map(m=>m*mag).find(v=>v>=raw)||raw; }
 function starPath(cx,cy,r){ let d=""; for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*.45:r; d+=(i?"L":"M")+(cx+rr*Math.cos(a)).toFixed(1)+","+(cy+rr*Math.sin(a)).toFixed(1);} return d+"Z"; }
 function isStay(t,key){ return (t.stays||[]).some(s=>s.place===key); }
+// A stop is a "maybe" when every step at that place is marked "maybe": true. Maybes are drawn hollow and dashed.
+function isMaybe(day,key){ const st=day.steps.filter(s=>s.place===key); return st.length>0&&st.every(s=>s.maybe); }
 
 /* ---------- real maps ----------
    The day map is drawn with MapLibre (kept inside the app) from OpenFreeMap's free OpenStreetMap
@@ -224,7 +227,7 @@ function drawDay(){
     m.addLayer({id:"route-casing",type:"line",source:"route",layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#fff","line-width":8,"line-opacity":.9}});
     m.addLayer({id:"route-line",type:"line",source:"route",layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":color,"line-width":4.5}});
   }
-  const key=t.id+"|"+day.date+"|"+daySeq(t,day).join(",")+"|"+color+"|"+(t.stays||[]).map(s=>s.place).join(",");
+  const key=t.id+"|"+day.date+"|"+daySeq(t,day).join(",")+"|"+day.steps.map(s=>(s.place||"")+(s.maybe?"?":"")).join(",")+"|"+color+"|"+(t.stays||[]).map(s=>s.place).join(",");
   const setLine=pts=>m.getSource("route").setData({type:"Feature",geometry:{type:"LineString",coordinates:pts.length>1?pts:[]},properties:{}});
   if(key!==GL.key){
     GL.key=key; GL.hot=null;
@@ -236,7 +239,8 @@ function drawDay(){
     (t.stays||[]).forEach(s=>{ const p=P[s.place]; if(!p||(s.id!==day.stay&&!day.steps.some(st=>st.place===s.place))) return; pts.push([p.lon,p.lat]); add(s.place,`<i aria-hidden="true">★</i><span>${esc(s.name)}</span>`,"stay"); });
     let n=0; const seen={};
     day.steps.forEach(s=>{ const p=P[s.place]; if(!p||isStay(t,s.place)||seen[s.place]) return; seen[s.place]=++n; pts.push([p.lon,p.lat]);
-      add(s.place,`<b style="background:${esc(color)}">${n}</b>${p.waypoint?"":`<span>${esc(p.name)}</span>`}`,"stop"); });
+      const mb=isMaybe(day,s.place);
+      add(s.place,`<b style="${mb?`color:${esc(color)};border-color:${esc(color)}`:`background:${esc(color)}`}">${n}</b>${p.waypoint?"":`<span>${esc(p.name)}${mb?" <em>(maybe)</em>":""}</span>`}`,mb?"stop maybe":"stop"); });
     if(pts.length){ const b=new GL.lib.LngLatBounds(pts[0],pts[0]); pts.forEach(p=>b.extend(p)); dayLine(t,day).forEach(p=>b.extend(p));
       m.fitBounds(b,{padding:{top:45,bottom:50,left:40,right:70},maxZoom:12,animate:false}); }
   }
@@ -434,7 +438,7 @@ function viewDays(t){
   return `
   <div class="daypicker" role="group" aria-label="Choose a day">${days.map(d=>`<button data-day="${esc(d.date)}" aria-pressed="${d.date===S.day}"><i style="background:${esc(d.color||"var(--accent)")}"></i>${esc(fmtDay(d.date,true))}</button>`).join("")}</div>
   <div class="dayview">
-    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="glslot" id="glslot"></div><div class="mapnote"><span class="svgonly">Numbers follow the day's order. Stars are where you sleep. Lines are simplified, not exact roads.</span><span class="glonly">${mapsStatus(t,true)}</span></div></div>
+    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="glslot" id="glslot"></div><div class="mapnote"><span class="svgonly">Numbers follow the day's order. Stars are where you sleep. Dashed circles are maybes. Lines are simplified, not exact roads.</span><span class="glonly">${mapsStatus(t,true)}</span></div></div>
       <div class="row" style="margin-top:10px">${link?`<a class="btn primary" href="${link}" target="_blank" rel="noopener">${ICON.map} Open the day in Google Maps</a>`:""}<button class="btn" data-go="offline">${ICON.offline} Offline maps</button></div>
     </div>
     <div class="card" style="padding:14px 14px 6px">
@@ -444,9 +448,10 @@ function viewDays(t){
       ${stay?`<div class="small" style="margin-bottom:6px">Night: <strong>${esc(stay.name)}</strong></div>`:""}
       ${dayWx(t,day)}
       <ol class="timeline">${day.steps.map(s=>{ const p=t.places[s.place]; const st=p&&isStay(t,s.place); const lc=lightColor(t,s.time);
-        return `<li data-key="${esc(s.place||"")}" class="${S.hot&&S.hot===s.place?"hot":""}"><span class="t">${esc(s.time||"")}</span>
-          <span><span class="n ${st?"star":""}" style="background:${esc(day.color||"var(--accent)")}">${st?"★":(num[s.place]||"·")}</span></span>
-          <span><span class="what">${esc(s.title)}</span>${s.note?`<div class="small">${esc(s.note)}</div>`:""}${s.next?`<div class="leg">Then: ${esc(s.next.charAt(0).toLowerCase()+s.next.slice(1))}</div>`:""}
+        const col=esc(day.color||"var(--accent)");
+        return `<li data-key="${esc(s.place||"")}" class="${S.hot&&S.hot===s.place?"hot":""}${s.maybe?" maybe":""}"><span class="t">${esc(s.time||"")}</span>
+          <span><span class="n ${st?"star":""}" style="${s.maybe&&!st?`color:${col};border-color:${col}`:`background:${col}`}">${st?"★":(num[s.place]||"·")}</span></span>
+          <span><span class="what">${esc(s.title)}</span>${s.maybe?` <span class="pill s-optional maybepill">Maybe</span>`:""}${s.note?`<div class="small">${esc(s.note)}</div>`:""}${s.next?`<div class="leg">Then: ${esc(s.next.charAt(0).toLowerCase()+s.next.slice(1))}</div>`:""}
           ${stepWx(t,day.date,s)}
           ${lc?`<div class="light" style="background:${lc}"></div>`:""}
           ${p&&!p.waypoint?`<a class="small" href="${gmapsPlace(p)}" target="_blank" rel="noopener">Map</a>`:""}</span></li>`; }).join("")}</ol>
@@ -1189,7 +1194,7 @@ Rules:
 - Every place in "places" has real latitude and longitude. Give each a short CAPS key and use that key in days, stays and transport. Mark towns that only shape a driving route with "waypoint": true.
 - Dates are YYYY-MM-DD; times are 24-hour HH:MM local time.
 - "status" is todo, booked, paid or optional. Use booked or paid only for things I told you are booked.
-- Give each day 3 to 8 timed steps. "next" says how to reach the following step, e.g. "Drive 40 min".
+- Give each day 3 to 8 timed steps. "next" says how to reach the following step, e.g. "Drive 40 min". Mark a nice-to-have step "maybe": true; it shows as optional on the timeline and the map.
 - Add "bookBy" dates for anything that sells out, and real booking links in "url".
 - Give every booking its official booking page in "url"; for meals, list other good restaurants in "options" ([{"title","url","note"}]).
 - Put nice-to-haves in "extras" ([{"id","title","when","date","time","notes","url"}]) or mark bookings "status":"optional", not in the days.
@@ -1637,7 +1642,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.17.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.18.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }

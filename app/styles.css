@@ -133,6 +133,12 @@ nav.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accen
 .timeline .n{display:block;width:24px;height:24px;border-radius:50%;color:#fff;font:700 .78rem/24px var(--body);text-align:center}
 .timeline .n.star{background:none !important;color:#E0A100;font-size:1.2rem;line-height:22px}
 .timeline .what{font-weight:700}
+.timeline li.maybe .n{background:transparent;border:2px dashed;line-height:20px;box-sizing:border-box}
+.timeline li.maybe .what{font-style:italic;font-weight:600}
+.maybepill{font-size:.72rem;padding:1px 7px;vertical-align:1px}
+.glpin.maybe b{background:#fff;border:2.5px dashed}
+.glpin.maybe span{font-style:italic;font-weight:600}
+.glpin.maybe span em{font-weight:500}
 .timeline .leg{font-size:.85rem;color:var(--muted)}
 .light{height:6px;border-radius:3px;margin-top:6px;width:100%;max-width:120px}
 .daylight-key{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin-top:10px}

@@ -1,7 +1,7 @@
 /* Tripster service worker: keeps the app working offline and, where the
    browser allows, re-checks forecasts in the background for weather alerts.
    Raise VERSION whenever any file changes so phones pick up the update. */
-const VERSION = "2.17.0";
+const VERSION = "2.18.0";
 const CACHE = "tripster-" + VERSION;
 const MAPS = "tripster-maps"; // saved map tiles: kept across app updates
 const SHELL = [
