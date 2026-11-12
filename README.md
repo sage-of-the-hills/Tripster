@@ -18,6 +18,8 @@ Live app: **https://sage-of-the-hills.github.io/tripster/** (after the first dep
 | **Weather** | Forecasts for every place, hour by hour, with a drone-flying rating (Good / Marginal / No-fly). Alerts for strong gusts, heavy snow or rain, severe cold, freezing rain and storms, and for big forecast changes. |
 | **Live conditions** | Official weather warnings (MeteoAlarm, about 38 European countries), Safe Travel alerts and road conditions (Iceland), and a northern-lights outlook for each night. |
 | **Explore** | Places grouped by day, with *Where to eat* near each day's stops (best nearby, vegetarian, vegan; from OpenStreetMap). Each day suggests a few well-known stops along that day's route, sized to how much daylight the plan leaves free, with Tripadvisor, Google reviews and Reddit a tap away. *Discover* shows the country's highlights, off-beat places and road trips in a swipeable row, with how far each is from your plan. Add any place by search. |
+| **Getting around** | On the Overview, one card for each town you sleep in: how to get in from the airport, the ticket or pass to buy, taxi and transport apps that work there, tips and things to avoid (from the trip file), plus Wikivoyage's *Arriving* and *Getting around* guides, saved for offline. Timeline legs ("Walk 15 min", "Metro 10 min") get a *Directions* link in the right mode. |
+| **Eat like a local** | In Explore, the dishes, sweets and drinks each country is famous for (Wikidata, pre-built in `data/dishes.json`) merged with the trip file's own `dishes`. Each shows *where to try it* in the town you're in: places from the trip file, restaurants Wikivoyage's writers recommend for that dish, and OpenStreetMap places named after it, with how far each is from that day's stops and an *Add to a day* button. Filter by dishes, sweets or drinks, hide meat and fish, and tick off what you've tried. |
 | **Bookings** | Every booking, stay, flight and car hire with a To book / Booked / Paid switch and a *Book* link to the official page (or a search when there isn't one), other options such as alternative restaurants, plus a packing checklist. |
 | **Optional extras** | Nice-to-haves kept out of the day plans, each with its link and an *Add to day* button. |
 | **People and sharing** | Each traveller has a name and email. Share a trip and everyone who signs in with their email sees the same plan and ticks live, with who changed what ("Booked by Aakash · 2 h ago") and a recent-changes list. Home shows *Trips you planned* and *Trips you were part of*: after a trip ends, only the planner keeps the full details; everyone else keeps a record (dates, places, people, final balances). |
@@ -67,13 +69,14 @@ app/                    the web app (deployed as-is, no build step)
   config.json           optional settings (data relay address)
   manifest.webmanifest  install metadata
   data/countries.json   country list for the trip builder
+  data/dishes.json      each country's best-known dishes (tools/build-dishes.py)
   fonts/ icons/ maps/   self-hosted fonts, app icons, the Iceland base map
   trips/index.json      trips bundled with the app (empty by default)
 relay/cloudflare-worker.js   optional data relay
 firestore.rules         security rules for shared trips (Firebase)
 docs/                   trip file format, data relay setup, AI prompt
 examples/               example trip file
-tools/                  helper scripts (regenerate the country list)
+tools/                  helper scripts (regenerate the country list and the dishes)
 .github/workflows/      GitHub Pages deployment
 ```
 
@@ -85,7 +88,7 @@ Run it locally with any static server, for example `cd app && python3 -m http.se
 |---|---|---|
 | [Open-Meteo](https://open-meteo.com) | Weather forecasts, place search | CC BY 4.0, free non-commercial use |
 | [Wikivoyage](https://en.wikivoyage.org) | Destinations, getting around, road-trip itineraries | CC BY-SA 4.0 |
-| [Wikidata](https://www.wikidata.org) | Sights, photos, scenic routes, countries | CC0 |
+| [Wikidata](https://www.wikidata.org) | Sights, photos, scenic routes, countries, famous dishes | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | Nearby sights, route summaries | CC BY-SA 4.0 |
 | [Wikimedia Commons](https://commons.wikimedia.org) | Place photos (loaded from Commons) | Per-file licences |
 | [NOAA SWPC](https://www.swpc.noaa.gov) | Aurora activity (Kp) forecast | US public domain |

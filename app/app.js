@@ -158,7 +158,7 @@ function loadGL(){
   return GL.loading;
 }
 function hashStr(s){ let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
-function kmBetween(a,b){ const r=Math.PI/180, dLat=(b[1]-a[1])*r, dLon=(b[0]-a[0])*r; const h=Math.sin(dLat/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dLon/2)**2; return 12742*Math.asin(Math.sqrt(h)); }
+function kmLL(a,b){ /* [lon,lat] pairs */ const r=Math.PI/180, dLat=(b[1]-a[1])*r, dLon=(b[0]-a[0])*r; const h=Math.sin(dLat/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dLon/2)**2; return 12742*Math.asin(Math.sqrt(h)); }
 function daySeq(t,day){ const P=t.places||{}; const r=(day.route&&day.route.length? day.route : day.steps.map(s=>s.place)).filter(k=>P[k]); return r.filter((k,i)=>i===0||k!==r[i-1]); }
 function straightLine(t,day){ return daySeq(t,day).map(k=>[t.places[k].lon,t.places[k].lat]); }
 function roadKey(t,day){ return "tp.road."+hashStr(straightLine(t,day).map(p=>p[0].toFixed(4)+","+p[1].toFixed(4)).join(";")); }
@@ -174,14 +174,14 @@ function simplifyLine(pts,tol){ // Douglas–Peucker, so a day's road fits comfo
 async function fetchRoad(t,day){
   const line=straightLine(t,day); if(line.length<2) return null;
   const key=roadKey(t,day), hit=loadJSON(key); if(hit) return hit.length? hit : null;
-  for(let i=1;i<line.length;i++) if(kmBetween(line[i-1],line[i])>400) return null;
+  for(let i=1;i<line.length;i++) if(kmLL(line[i-1],line[i])>400) return null;
   if(!navigator.onLine) return null;
   try{
     const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),15000);
     const r=await fetch("https://router.project-osrm.org/route/v1/driving/"+line.map(p=>p[0].toFixed(5)+","+p[1].toFixed(5)).join("%3B")+"?overview=full&geometries=geojson",{signal:ctl.signal});
     clearTimeout(tm); if(!r.ok) return null;
     const j=await r.json(), g=j.routes&&j.routes[0]; if(!g||!g.geometry) return null;
-    let straight=0; for(let i=1;i<line.length;i++) straight+=kmBetween(line[i-1],line[i]);
+    let straight=0; for(let i=1;i<line.length;i++) straight+=kmLL(line[i-1],line[i]);
     if(g.distance/1000>straight*4+40){ saveJSON(key,[]); return null; } // the router went somewhere odd
     const pts=simplifyLine(g.geometry.coordinates,0.00012).map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]);
     saveJSON(key,pts); return pts;
@@ -257,7 +257,7 @@ function mapSig(t){ return hashStr(JSON.stringify([Object.values(t.places||{}).m
 function mapsRecord(t){ return loadJSON("tp.maps."+t.id); }
 async function planMaps(t){
   const P=Object.values(t.places||{}).filter(p=>isFinite(p.lat)&&isFinite(p.lon)); if(!P.length) return {tiles:[],raster:[]};
-  const lines=[]; for(const d of t.days||[]){ const r=await fetchRoad(t,d); if(r) lines.push(r); else { const s=straightLine(t,d); for(let i=1;i<s.length;i++) if(kmBetween(s[i-1],s[i])<=150) lines.push([s[i-1],s[i]]); } }
+  const lines=[]; for(const d of t.days||[]){ const r=await fetchRoad(t,d); if(r) lines.push(r); else { const s=straightLine(t,d); for(let i=1;i<s.length;i++) if(kmLL(s[i-1],s[i])<=150) lines.push([s[i-1],s[i]]); } }
   const lats=P.map(p=>p.lat), lons=P.map(p=>p.lon);
   const n=Math.max(...lats)+.3, s=Math.min(...lats)-.3, w=Math.min(...lons)-.5, e=Math.max(...lons)+.5;
   const box=z=>[lon2x(w,z),lat2y(n,z),lon2x(e,z),lat2y(s,z)], count=z=>{ const [x0,y0,x1,y1]=box(z); return (x1-x0+1)*(y1-y0+1); };
@@ -368,6 +368,7 @@ function renderNow(){
   if(S.tab==="days"){ sizeMap(); mountDayMap(); }
   if(S.mapDl) paintDl();
   if(S.tab==="money") setTimeout(expEachText,0);
+  if(S.tab==="overview"||S.tab==="explore") setTimeout(()=>ensureLocal(t),0);
 }
 function emptyState(){ return `<div class="empty">No trip open.</div>`; }
 
@@ -417,7 +418,7 @@ function viewOverview(t){
   ${extrasBlock(t)}
   ${(t.notes||[]).length?`<div class="section-head"><h2>Good to know</h2></div><div class="grid cols-2">${t.notes.map(n=>`<div class="card"><h3>${esc(n.title)}</h3><p style="margin:0">${esc(n.body)}</p></div>`).join("")}</div>`:""}
   ${(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).length?`<div class="row" style="margin-top:14px">${t.links.filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).map(l=>`<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
-  ${guideBlock(t)}
+  ${getAroundBlock(t)}
   <div class="section-head"><h2>Share and offline</h2></div>
   <p class="small" style="margin:0 0 8px"><strong>Share trip story</strong> sends a link showing what you did and where you went: the days, the places and a map. Nothing else goes in it: no bookings, addresses, references, costs, expenses or people. To plan together, add people with their emails instead (People, above).</p>
   <div class="row"><button class="btn primary" data-share-link>Share trip story</button><button class="btn" data-go="offline">Offline maps</button></div>
@@ -447,11 +448,11 @@ function viewDays(t){
       ${bk.length?`<div class="row" style="margin-bottom:6px">${bk.map(b=>{const kind=(t.transport||[]).includes(b)?"transport":"booking"; const st=statusOf(kind,b); return st==="todo"? `<a class="pill s-${st}" title="To book: open the booking page" href="${esc(bookHref(t,b))}" target="_blank" rel="noopener">${esc(b.title)}${b.time?" "+esc(b.time):""} · Book ${ICON.ext}</a>` : `<span class="pill s-${st}" title="${esc(STATUS[st])}">${esc(b.title)}${b.time?" "+esc(b.time):""}</span>`}).join("")}</div>`:""}
       ${stay?`<div class="small" style="margin-bottom:6px">Night: <strong>${esc(stay.name)}</strong></div>`:""}
       ${dayWx(t,day)}
-      <ol class="timeline">${day.steps.map(s=>{ const p=t.places[s.place]; const st=p&&isStay(t,s.place); const lc=lightColor(t,s.time);
+      <ol class="timeline">${day.steps.map((s,si)=>{ const p=t.places[s.place]; const st=p&&isStay(t,s.place); const lc=lightColor(t,s.time); const leg=legHref(t,day,si);
         const col=esc(day.color||"var(--accent)");
         return `<li data-key="${esc(s.place||"")}" class="${S.hot&&S.hot===s.place?"hot":""}${s.maybe?" maybe":""}"><span class="t">${esc(s.time||"")}</span>
           <span><span class="n ${st?"star":""}" style="${s.maybe&&!st?`color:${col};border-color:${col}`:`background:${col}`}">${st?"★":(num[s.place]||"·")}</span></span>
-          <span><span class="what">${esc(s.title)}</span>${s.maybe?` <span class="pill s-optional maybepill">Maybe</span>`:""}${s.note?`<div class="small">${esc(s.note)}</div>`:""}${s.next?`<div class="leg">Then: ${esc(s.next.charAt(0).toLowerCase()+s.next.slice(1))}</div>`:""}
+          <span><span class="what">${esc(s.title)}</span>${s.maybe?` <span class="pill s-optional maybepill">Maybe</span>`:""}${s.note?`<div class="small">${esc(s.note)}</div>`:""}${s.next?`<div class="leg">Then: ${esc(s.next.charAt(0).toLowerCase()+s.next.slice(1))}${leg?` <a class="small" href="${esc(leg)}" target="_blank" rel="noopener">Directions</a>`:""}</div>`:""}
           ${stepWx(t,day.date,s)}
           ${lc?`<div class="light" style="background:${lc}"></div>`:""}
           ${p&&!p.waypoint?`<a class="small" href="${gmapsPlace(p)}" target="_blank" rel="noopener">Map</a>`:""}</span></li>`; }).join("")}</ol>
@@ -594,6 +595,13 @@ const TEMPLATE = {format:"trip-planner/1",id:"porto-lisbon-2027",title:"Porto an
   transport:[{id:"flight-out",kind:"flight",title:"London to Porto",at:"2027-05-01T09:00",ref:"",status:"booked"},{id:"car",kind:"car",title:"Hire car",provider:"",at:"2027-05-03T10:00",until:"2027-05-05T10:00",pickup:"HOTEL",dropoff:"OPO",status:"todo"}],
   bookings:[{id:"lello",title:"Livraria Lello tickets",provider:"Livraria Lello",date:"2027-05-02",time:"10:00",people:2,url:"https://www.livrarialello.pt",bookBy:"2027-04-20",cost:"€10 each",status:"todo",notes:""}],
   days:[{date:"2027-05-02",title:"Old Porto",color:"#0B5F73",stay:"porto-hotel",route:["HOTEL","LIVRARIA"],steps:[{time:"09:30",title:"Hotel",place:"HOTEL",next:"Walk 15 min"},{time:"10:00",title:"Livraria Lello",place:"LIVRARIA",booking:"lello",note:"Arrive 10 minutes early"}]}],
+  getaround:[{city:"Porto",fromAirport:[{mode:"metro",how:"Metro line E (violet) to Trindade, then walk or change",mins:35,cost:"€2.60"},{mode:"taxi",how:"Taxi or Bolt/Uber from the arrivals level",mins:25,cost:"€25–30"}],
+    pass:{name:"Andante card",where:"Metro machines",tip:"Buy a reusable card and load single trips or a 24 h Tour pass"},apps:["Bolt","Uber","Metro do Porto"],
+    tips:["The centre is steep: wear grippy shoes","Funicular dos Guindais saves the climb from Ribeira"],avoid:["Unofficial taxi touts in Ribeira"]}],
+  dishes:[{name:"Francesinha",what:"Layered meat sandwich under melted cheese and a beer-tomato sauce",veg:false,city:"Porto",
+    where:[{name:"Café Santiago",lat:41.1466,lon:-8.6067,why:"The classic; expect a queue at lunch",price:"€€"}]},
+    {name:"Pastel de nata",what:"Custard tart with flaky pastry, best warm with cinnamon",veg:true,city:"Porto",
+    where:[{name:"Manteigaria",lat:41.1489,lon:-8.6067,why:"Baked all day, still warm",price:"€"}]}],
   checklist:[{id:"passport",title:"Passports",group:"Documents"}],notes:[{title:"Emergency",body:"Call 112."}],links:[{title:"Weather",url:"https://www.ipma.pt/en/"}]};
 
 /* ---------- loading & validation ---------- */
@@ -605,6 +613,9 @@ function validate(obj){
   if(!Array.isArray(obj.days)) return "The trip needs a days list (it can be empty).";
   obj.places=obj.places||{}; obj.stays=obj.stays||[]; obj.bookings=obj.bookings||[]; obj.transport=obj.transport||[];
   for(const d of obj.days){ if(!d.date||!Array.isArray(d.steps)) return "Each day needs a date and a steps list."; }
+  // optional local know-how: keep what's usable, quietly drop the rest
+  obj.getaround=normGetaround(obj.getaround); if(!obj.getaround.length) delete obj.getaround;
+  obj.dishes=normDishes(obj.dishes); if(!obj.dishes.length) delete obj.dishes;
   return null;
 }
 async function loadTripText(text){
@@ -894,6 +905,7 @@ function viewExplore(t){
         <span class="row"><select class="field" id="add-day-${i}" style="width:auto" aria-label="Add to day"><option value="">Just add to trip</option>${(t.days||[]).map(d=>`<option value="${esc(d.date)}">Add to ${esc(fmtDay(d.date,true))}</option>`).join("")}</select><button class="btn primary" data-add-place="${i}">Add</button></span></li>`).join("")}</ul>`):""}
   </div>
   ${exploreDays(t,keys,dayOf,W,today)}
+  ${foodBlock(t)}
   ${exploreDiscover(t)}
   <div class="card" style="margin-top:14px"><div class="spread"><div><h3>Maps without signal</h3><p class="small" style="margin:0">Save these areas in Google Maps before you go.</p></div><button class="btn" data-go="offline">Offline maps</button></div></div>`;
 }
@@ -1198,7 +1210,9 @@ Rules:
 - Add "bookBy" dates for anything that sells out, and real booking links in "url".
 - Give every booking its official booking page in "url"; for meals, list other good restaurants in "options" ([{"title","url","note"}]).
 - Put nice-to-haves in "extras" ([{"id","title","when","date","time","notes","url"}]) or mark bookings "status":"optional", not in the days.
-- Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".`;
+- Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".
+- Add "getaround": one entry per town or city we stay in, with how to get from the airport or station ("fromAirport": mode, how, mins, cost), the transport card or pass to buy ("pass"), the taxi and transport "apps" that work there, practical "tips" and scams or mistakes to "avoid". Give "lat" and "lon" for each city.
+- Add "dishes": 8 to 15 dishes, sweets and drinks each place is famous for, with "what" (one line), "veg" (true or false), "city", and "where": 1 to 3 well-reviewed places to eat it, each with real "lat", "lon", "why" and "price" (€ to €€€€). Prefer places near our stops.`;
 function planBlock(){
   return `<div class="grid cols-3 plan">
    <div class="card plan-main"><div class="eyebrow" style="color:var(--accent)">Recommended</div><h3>Build it with suggestions</h3>
@@ -1322,6 +1336,7 @@ async function moreClicks(el){
   if(await discoverClick(el)) return true;
   if(ideasClick(el)) return true;
   if(extraClick(el)) return true;
+  if(foodClick(el)) return true;
   if(el.hasAttribute("data-maps-save")){ const t=trip(); if(t) saveMaps(t); return true; }
   if(el.hasAttribute("data-maps-cancel")){ if(S.mapDl) S.mapDl.cancel=true; return true; }
   if(el.hasAttribute("data-reset-open")){ S.reset={}; S.screen="reset"; render(); window.scrollTo({top:0}); return true; }
@@ -1363,6 +1378,7 @@ function onChange(el){
   if(builderInput(el)) return true;
   if(el.id==="wx-place"){ S.wxPlace=el.value; S.wxDate=null; render(); return true; }
   if(el.id==="drone-limit"){ S.droneLimit=+el.value; store.set("ts.drone",String(S.droneLimit)); render(); return true; }
+  if(el.id==="food-veg"){ S.foodVeg=el.checked; const y=window.scrollY; render(); window.scrollTo(0,y); return true; }
   return false;
 }
 
@@ -1642,7 +1658,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.18.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.19.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -2182,6 +2198,281 @@ function guideBlock(t){
   return `<div class="section-head"><h2>${esc(t.guide.title||"Getting around")}</h2></div><details class="card guide"><summary>Read the guide (saved for offline)</summary>${safeHTML(t.guide.html)}<p class="small muted">From Wikivoyage (CC BY-SA). ${t.guide.source?srcLink("Full guide",t.guide.source):""}</p></details>`;
 }
 
+/* ---------- local know-how: getting around each city, and the dishes to try ----------
+   Three layers, best first:
+   1. The trip file's own "getaround" and "dishes" (written by you or your AI assistant).
+   2. Wikivoyage for every town you sleep in: "Get in" (from the airport), "Get around", and the
+      restaurants its writers list under "Eat", matched to dishes they mention.
+   3. Wikidata's best-known dishes, sweets and drinks of the country, pre-built in data/dishes.json.
+   Plus OpenStreetMap places named after a dish. All free; everything fetched is kept on the device. */
+function normGetaround(g){
+  if(g&&!Array.isArray(g)&&typeof g==="object") g=Object.entries(g).map(([city,v])=>Object.assign({city},v));
+  if(!Array.isArray(g)) return [];
+  const list=v=>(Array.isArray(v)?v:v?[v]:[]).map(x=>typeof x==="string"?x.trim():x).filter(Boolean);
+  return g.filter(x=>x&&typeof x==="object"&&x.city).map(x=>({city:String(x.city),
+    lat:isFinite(+x.lat)&&x.lat!=null&&x.lat!==""?+x.lat:null, lon:isFinite(+x.lon)&&x.lon!=null&&x.lon!==""?+x.lon:null,
+    fromAirport:list(x.fromAirport).map(a=>typeof a==="string"?{how:a}:a).filter(a=>a&&a.how),
+    pass:x.pass&&typeof x.pass==="object"&&x.pass.name?x.pass:(typeof x.pass==="string"&&x.pass?{name:x.pass}:null),
+    apps:list(x.apps).map(String), tips:list(x.tips).map(String), avoid:list(x.avoid).map(String)}));
+}
+function normDishes(d){
+  if(!Array.isArray(d)) return [];
+  return d.filter(x=>x&&typeof x==="object"&&x.name).map(x=>({name:String(x.name),what:String(x.what||x.desc||""),veg:typeof x.veg==="boolean"?x.veg:null,
+    kind:/^(dish|sweet|drink|cheese)$/.test(x.kind)?x.kind:"", city:String(x.city||""),
+    where:(Array.isArray(x.where)?x.where:[]).filter(w=>w&&w.name).map(w=>({name:String(w.name),lat:isFinite(+w.lat)&&w.lat!=null?+w.lat:null,lon:isFinite(+w.lon)&&w.lon!=null?+w.lon:null,why:String(w.why||""),price:String(w.price||""),url:/^https?:\/\//.test(w.url||"")?w.url:""})).slice(0,5)}));
+}
+const LOC={cities:{}, guides:{}, dishes:{}, osm:{}, started:{}};
+function localStore(k,v){ const key="ts.loc."+k; if(v===undefined){ const x=loadJSON(key); return x? x : null; } saveJSON(key,{at:Date.now(),v}); return {at:Date.now(),v}; }
+const fresh=(x,days)=>x&&Date.now()-x.at<days*864e5;
+const stripName=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+
+/* Which town each stay is in: the nearest Wikivoyage destination, preferring the bigger article when
+   two are close (a hotel in Ribeira is "Porto", not "Vila Nova de Gaia" across the river). */
+async function cityAt(p){
+  const ck="city."+p.lat.toFixed(2)+","+p.lon.toFixed(2), hit=localStore(ck); if(hit) return hit.v;
+  if(!navigator.onLine) return null;
+  const g=await wvGet({action:"query",list:"geosearch",gscoord:p.lat+"|"+p.lon,gsradius:"10000",gslimit:"12"});
+  let rows=((g.query&&g.query.geosearch)||[]).filter(r=>!/airport|national park|\(disambiguation\)/i.test(r.title));
+  rows.forEach(r=>{ r.title=r.title.split("/")[0]; });
+  if(!rows.length){ localStore(ck,{page:null}); return {page:null}; }
+  const near=rows[0].dist, close=rows.filter(r=>r.dist<=Math.max(5000,near*3));
+  let pick=close[0];
+  if(close.length>1){ try{ const inf=await wvGet({action:"query",prop:"info",titles:[...new Set(close.map(r=>r.title))].join("|"),redirects:"1"});
+    const len={}; (inf.query.pages||[]).forEach(x=>{ len[x.title]=x.length||0; }); pick=close.slice().sort((a,b)=>(len[b.title]||0)-(len[a.title]||0))[0]; }catch(e){} }
+  const v={page:pick.title,lat:pick.lat,lon:pick.lon}; localStore(ck,v); return v;
+}
+/* The towns of a trip: those named in "getaround", then the town of every stay. */
+function tripCities(t){
+  const out=[]; const near=(a,b)=>a.lat!=null&&b.lat!=null&&kmBetween(a,b)<12;
+  const add=c=>{ const same=out.find(o=>stripName(o.name)===stripName(c.name)||(o.page&&o.page===c.page)||near(o,c));
+    if(same){ ["ga","page","lat","lon"].forEach(k=>{ if(same[k]==null&&c[k]!=null) same[k]=c[k]; }); same.stays=[...new Set([...(same.stays||[]),...(c.stays||[])])]; return; } out.push(c); };
+  (t.getaround||[]).forEach(g=>add({name:g.city,lat:g.lat,lon:g.lon,ga:g,page:null,stays:[]}));
+  (t.stays||[]).forEach(s=>{ const p=t.places[s.place]; if(!p) return; const c=LOC.cities[p.lat.toFixed(2)+","+p.lon.toFixed(2)];
+    if(c&&c.page) add({name:c.page,page:c.page,lat:c.lat,lon:c.lon,stays:[s.id],ga:null});
+    else if(c) add({name:(p.area||"").split(",")[0]||p.name,lat:p.lat,lon:p.lon,stays:[s.id],ga:null}); });
+  // a getaround city with no coordinates borrows its stay's
+  out.forEach(c=>{ if(c.lat==null&&c.stays.length){ const s=(t.stays||[]).find(x=>x.id===c.stays[0]); const p=s&&t.places[s.place]; if(p){ c.lat=p.lat; c.lon=p.lon; } } });
+  out.forEach(c=>{ c.key=stripName(c.page||c.name); });
+  return out;
+}
+/* One town's Wikivoyage guide: arriving by air, getting around, and its "Eat" listings
+   (from its district articles too, for big cities). Kept for 30 days, and for ever without signal. */
+async function cityGuide(page){
+  const ck="cg."+page, hit=localStore(ck); if(fresh(hit,30)||(hit&&!navigator.onLine)) return hit.v;
+  const d=await wvGet({action:"parse",page,prop:"sections|wikitext",redirects:"1"});
+  const secs=(d.parse&&d.parse.sections)||[], wt=(d.parse&&d.parse.wikitext)||"";
+  const html=async s=>{ if(!s) return ""; try{ const h=await wvGet({action:"parse",page,section:s.index,prop:"text",disableeditsection:"1",redirects:"1"}); return safeHTML(h.parse.text); }catch(e){ return ""; } };
+  const gi=secs.findIndex(s=>/^get in$/i.test(s.line)); let air=null;
+  if(gi>=0){ for(let i=gi+1;i<secs.length&&+secs[i].level>+secs[gi].level;i++) if(/plane|air/i.test(secs[i].line)){ air=secs[i]; break; } }
+  const ga=secs.find(s=>/^get around$/i.test(s.line));
+  const [getin,around]=await Promise.all([html(air||(gi>=0?secs[gi]:null)),html(ga)]);
+  let eats=eatListings(wt,page);
+  if(eats.length<6){ // big cities keep their restaurants in district articles
+    const re=new RegExp("\\[\\[("+page.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"/[^|\\]#]+)","g"); const ds=[...new Set([...wt.matchAll(re)].map(m=>m[1]))].slice(0,8);
+    for(const p of ds){ try{ const x=await wvGet({action:"parse",page:p,prop:"wikitext",redirects:"1"}); eats=eats.concat(eatListings((x.parse&&x.parse.wikitext)||"",p)); }catch(e){} } }
+  const v={page,getin,around,eats:eats.slice(0,250)};
+  localStore(ck,v); return v;
+}
+function eatListings(wt,page){
+  const out=[]; const re=/\{\{\s*(eat|drink|listing)\b([^{}]|\{\{[^{}]*\}\})*\}\}/gi; let m;
+  while((m=re.exec(wt))){ const P=wtParams(m[0]); const type=m[1].toLowerCase();
+    if(type==="listing"&&!/^(eat|drink)$/i.test(P.type||"")) continue;
+    const name=wtClean(P.name||""); if(!name) continue; const la=parseFloat(P.lat), lo=parseFloat(P.long);
+    out.push({name:name.slice(0,70),lat:isFinite(la)?la:null,lon:isFinite(lo)?lo:null,price:wtClean(P.price||"").slice(0,60),
+      text:wtClean([P.alt,P.content||P.description].filter(Boolean).join(". ")).slice(0,400),url:/^https?:\/\//.test(P.url||"")?P.url:"",page}); }
+  return out;
+}
+/* The country's famous dishes. Pre-built (tools/build-dishes.py) so it's instant; asked live from
+   Wikidata for a country the file doesn't have yet. */
+let DISHDATA=null;
+async function countryDishes(c){
+  if(!DISHDATA){ try{ DISHDATA=await (await fetch("data/dishes.json")).json(); }catch(e){ DISHDATA={}; } }
+  if(DISHDATA[c.q]) return DISHDATA[c.q];
+  const hit=localStore("dishes."+c.q); if(fresh(hit,30)||(hit&&!navigator.onLine)) return hit.v;
+  if(!navigator.onLine) return [];
+  const top=await withTimeout(sparql(`SELECT ?item ?links (GROUP_CONCAT(DISTINCT ?root;separator=" ") AS ?roots) WHERE { VALUES ?root { wd:Q746549 wd:Q2095 wd:Q40050 } ?k wdt:P279* ?root. ?item wdt:P31|wdt:P279 ?k. ?item wdt:P495 wd:${c.q}; wikibase:sitelinks ?links. FILTER(?links >= 4) } GROUP BY ?item ?links ORDER BY DESC(?links) LIMIT 60`),58000);
+  if(!top.length){ localStore("dishes."+c.q,[]); return []; }
+  const base={}; top.forEach(b=>{ base[b.item.value.split("/").pop()]={links:+b.links.value,roots:b.roots.value}; });
+  const rows=await withTimeout(sparql(`SELECT ?item ?l ?d ?img (GROUP_CONCAT(DISTINCT ?il;separator=", ") AS ?ings) (COUNT(DISTINCT ?oc) AS ?n) (SAMPLE(?rl) AS ?reg) (SAMPLE(?tx) AS ?taxon) WHERE {
+    VALUES ?item { ${Object.keys(base).map(x=>"wd:"+x).join(" ")} } ?item rdfs:label ?l FILTER(lang(?l)="en")
+    OPTIONAL{ ?item wdt:P495 ?oc } OPTIONAL{ ?item schema:description ?d FILTER(lang(?d)="en") } OPTIONAL{ ?item wdt:P18 ?img }
+    OPTIONAL{ ?item wdt:P527|wdt:P186 ?ing. ?ing rdfs:label ?il FILTER(lang(?il)="en") }
+    OPTIONAL{ ?item wdt:P2341 ?r. ?r rdfs:label ?rl FILTER(lang(?rl)="en") } OPTIONAL{ ?item wdt:P31 ?tx FILTER(?tx = wd:Q16521) } } GROUP BY ?item ?l ?d ?img`),30000);
+  const skip=/\b(diet|flour|breed|cultivar|species|genus|brand|company|restaurant|chain|ingredient|additive|cuisine|preserve|condiment)\b/i;
+  const v=rows.filter(b=>!b.taxon&&!/^Q\d+$/.test(b.l.value)&&!skip.test(b.l.value+" "+(b.d?b.d.value:""))).map(b=>{ const id=b.item.value.split("/").pop(), d=b.d?b.d.value:"", r=base[id].roots;
+      const kind=r.includes("Q40050")&&!r.includes("Q746549")?"drink":/dessert|sweet|cake|pastry|confection|pudding|biscuit|cookie|candy|tart/i.test(d)?"sweet":/cheese/i.test(b.l.value+" "+d)?"cheese":"dish";
+      const x={id,n:b.l.value,d:d.slice(0,140),k:kind,s:Math.round(base[id].links/(1+.6*(Math.max(1,+b.n.value)-1))*10)/10};
+      if(b.img) x.img=decodeURIComponent(b.img.value.split("/").pop()); if(b.ings&&b.ings.value) x.ing=b.ings.value.slice(0,160); if(b.reg) x.reg=b.reg.value; return x; })
+    .sort((a,b)=>b.s-a.s).slice(0,30);
+  localStore("dishes."+c.q,v); return v;
+}
+/* OpenStreetMap places named after, or tagged with, one of the dishes: "Casa da Francesinha" and the like. */
+async function osmDishPlaces(city,names){
+  const ck="osmdish."+city.key, hit=localStore(ck); if(fresh(hit,14)||(hit&&!navigator.onLine)) return hit.v;
+  if(!navigator.onLine||city.lat==null) return [];
+  const words=[...new Set(names.map(stripName).filter(n=>n.length>=4))].slice(0,25); if(!words.length) return [];
+  // OSM names keep their accents: match each letter with or without one
+  const acc={a:"[aàáâãäå]",e:"[eèéêë]",i:"[iìíîï]",o:"[oòóôõö]",u:"[uùúûü]",c:"[cç]",n:"[nñ]"};
+  const rx=words.map(w=>w.split("").map(ch=>acc[ch]||(ch===" "?"[ -]":ch)).join("")).join("|");
+  const q=`[out:json][timeout:25];nwr["amenity"~"^(restaurant|cafe|fast_food|bar|pub|ice_cream|food_court)$"]["name"~"${rx}",i](around:7000,${city.lat},${city.lon});out center tags 80;`;
+  const j=await overpass(q);
+  const v=(j.elements||[]).map(e=>{ const g=e.tags||{}; const lat=e.lat!=null?e.lat:e.center&&e.center.lat, lon=e.lon!=null?e.lon:e.center&&e.center.lon;
+    return {name:g["name:en"]||g.name,lat,lon,cuisine:(g.cuisine||"").replace(/_/g," ").replace(/;/g,", "),url:g.website||g["contact:website"]||""}; }).filter(x=>x.name&&x.lat!=null);
+  localStore(ck,v); return v;
+}
+
+/* Load what a trip needs, once per session; each piece repaints when it lands. */
+async function ensureLocal(t){
+  if(!t||LOC.started[t.id]) return; LOC.started[t.id]=true;
+  // towns of the stays
+  for(const s of t.stays||[]){ const p=t.places[s.place]; if(!p||!isFinite(p.lat)) continue; const k=p.lat.toFixed(2)+","+p.lon.toFixed(2);
+    if(LOC.cities[k]) continue; try{ LOC.cities[k]=await cityAt(p)||{page:null}; }catch(e){ LOC.cities[k]={page:null}; } }
+  render();
+  // the country's dishes
+  await countries(); const c=countryByName(t.region||"");
+  if(c&&!LOC.dishes[c.q]){ LOC.dishes[c.q]={busy:true}; render();
+    try{ LOC.dishes[c.q]={items:await countryDishes(c)}; }catch(e){ LOC.dishes[c.q]={error:"Couldn't reach Wikidata just now."}; } render(); }
+  // each town's guide
+  for(const city of tripCities(t)){ if(!city.page||LOC.guides[city.page]) continue; LOC.guides[city.page]={busy:true}; render();
+    try{ LOC.guides[city.page]=await cityGuide(city.page); }catch(e){ LOC.guides[city.page]={error:"Couldn't reach Wikivoyage just now."}; } render(); }
+}
+function retryLocal(t){ LOC.started[t.id]=false; Object.keys(LOC.guides).forEach(k=>{ if(LOC.guides[k].error) delete LOC.guides[k]; }); Object.keys(LOC.dishes).forEach(k=>{ if(LOC.dishes[k].error) delete LOC.dishes[k]; }); ensureLocal(t); }
+
+/* ---- Getting around (Overview) ---- */
+const MODE_ICON={metro:"🚇",subway:"🚇",train:"🚆",rail:"🚆",tram:"🚋",bus:"🚌",taxi:"🚕",uber:"🚕",ride:"🚕",walk:"🚶",ferry:"⛴️",boat:"⛴️",car:"🚗",drive:"🚗",bike:"🚲",shuttle:"🚐",flight:"✈️"};
+function modeIcon(m){ const k=Object.keys(MODE_ICON).find(x=>new RegExp("\\b"+x,"i").test(m||"")); return k?MODE_ICON[k]:"➜"; }
+function gmapsTransit(p,mode){ return "https://www.google.com/maps/dir/?api=1&travelmode="+(mode||"transit")+"&destination="+encodeURIComponent(p.lat+","+p.lon); }
+function getAroundBlock(t){
+  const cities=tripCities(t), stays=t.stays||[];
+  if(!cities.length) return guideBlock(t);
+  const card=c=>{ const g=c.ga, W=c.page&&LOC.guides[c.page];
+    const stay=stays.find(s=>c.stays.includes(s.id)), sp=stay&&t.places[stay.place];
+    const n=c.stays.reduce((a,id)=>{ const s=stays.find(x=>x.id===id); return a+(s&&nights(s.checkIn,s.checkOut)||0); },0);
+    const li=a=>`<li><span class="mode" aria-hidden="true">${modeIcon(a.mode||a.how)}</span><span>${esc(a.how)}${a.mins||a.cost?`<span class="small muted"> · ${esc([a.mins?a.mins+" min":"",a.cost||""].filter(Boolean).join(" · "))}</span>`:""}</span></li>`;
+    return `<div class="card ga">
+      <div class="spread"><h3>${esc(c.name)}</h3>${n?`<span class="small muted">${n} night${n===1?"":"s"}</span>`:""}</div>
+      ${g&&g.fromAirport.length?`<h4>Arriving</h4><ul class="ga-list">${g.fromAirport.map(li).join("")}</ul>`:""}
+      ${g&&g.pass?`<h4>Ticket or pass</h4><p class="small" style="margin:0"><strong>${esc(g.pass.name)}</strong>${g.pass.where?` · ${esc(g.pass.where)}`:""}${g.pass.tip?`<br>${esc(g.pass.tip)}`:""}</p>`:""}
+      ${g&&g.apps.length?`<h4>Apps that work here</h4><div class="chips">${g.apps.map(a=>`<span class="chip">${esc(a)}</span>`).join("")}</div>`:""}
+      ${g&&g.tips.length?`<h4>Tips</h4><ul class="small ga-tips">${g.tips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
+      ${g&&g.avoid.length?`<h4>Avoid</h4><ul class="small ga-tips ga-avoid">${g.avoid.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
+      ${!g?`<p class="small muted" style="margin:4px 0 0">Ask your AI assistant for this town's airport transfer, passes and tips: the Copy prompt on the home page now asks for them.</p>`:""}
+      ${W&&W.busy?`<p class="small muted">Getting the Wikivoyage guide…</p>`:W&&W.error?`<p class="small" style="color:var(--bad)">${esc(W.error)} <button class="linkbtn" data-local-retry>Try again</button></p>`:""}
+      ${W&&W.getin?`<details class="guide"><summary>Arriving: the Wikivoyage guide</summary>${W.getin}</details>`:""}
+      ${W&&W.around?`<details class="guide"><summary>Getting around ${esc(c.name)}: the Wikivoyage guide</summary>${W.around}</details>`:""}
+      <div class="row" style="margin-top:10px">${sp?`<a class="btn sm" href="${gmapsTransit(sp)}" target="_blank" rel="noopener">${ICON.map} Public transport to ${esc(stay.name)}</a>`:""}${c.page?srcLink("Wikivoyage","https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.page)):""}</div>
+    </div>`; };
+  const anyWv=cities.some(c=>c.page&&LOC.guides[c.page]&&(LOC.guides[c.page].getin||LOC.guides[c.page].around));
+  return `<div class="section-head"><h2>Getting around</h2><span class="small muted">For each place you stay · saved for offline</span></div>
+    <div class="grid cols-2">${cities.map(card).join("")}</div>
+    ${anyWv?`<p class="small muted" style="margin:6px 0 0">Guides from Wikivoyage (CC BY-SA), written by travellers. Check fares and times locally.</p>`:""}
+    ${guideBlock(t)}`;
+}
+/* "Then: walk 10 min" on the timeline gets a directions link in the right mode */
+function legHref(t,day,i){
+  const s=day.steps[i], next=day.steps.slice(i+1).find(x=>t.places[x.place]&&x.place!==s.place); if(!s.next||!next) return "";
+  const m=/walk|on foot/i.test(s.next)?"walking":/metro|subway|tube|underground|bus|tram|train|rail|transit|ferry|funicular/i.test(s.next)?"transit":/drive|car|taxi|uber|bolt|cab/i.test(s.next)?"driving":"";
+  if(!m) return ""; const a=t.places[s.place], b=t.places[next.place];
+  return "https://www.google.com/maps/dir/?api=1&travelmode="+m+(a?"&origin="+encodeURIComponent(a.lat+","+a.lon):"")+"&destination="+encodeURIComponent(b.lat+","+b.lon);
+}
+
+/* ---- Eat like a local (Explore) ---- */
+const MEAT=/\b(pork|beef|chicken|lamb|mutton|goat|meat|ham|bacon|sausages?|chorizo|salami|fish|cod|tuna|salmon|sardines?|shrimps?|prawns?|octopus|squid|clams?|mussels?|oysters?|crab|lobster|seafood|anchov\w*|tripe|blood|duck|turkey|veal|steak|gelatin|lard|bacalhau|eel|liver|offal|gadus|veal|venison|horse)\b/i;
+function dishVeg(x){ if(typeof x.veg==="boolean") return x.veg; if(x.kind==="drink") return null; return MEAT.test([x.name,x.what,x.ing].join(" "))? false : null; }
+function triedSet(t){ return new Set(loadJSON("ts.tried."+t.id)||[]); }
+/* All dishes for the trip: the trip file's own first, then the country's best known. */
+function tripDishes(t){
+  const c=countryByName(t.region||""), D=c&&LOC.dishes[c.q]; const out=[];
+  const same=(a,b)=>{ const x=stripName(a), y=stripName(b); return x===y||(x.length>5&&y.includes(x))||(y.length>5&&x.includes(y)); };
+  (t.dishes||[]).forEach(d=>out.push(Object.assign({},d,{src:"trip"})));
+  ((D&&D.items)||[]).forEach(w=>{ const mine=out.find(o=>same(o.name,w.n)); if(mine){ if(!mine.img&&w.img) mine.img=w.img; if(!mine.ing&&w.ing) mine.ing=w.ing; if(!mine.kind) mine.kind=w.k; if(!mine.what) mine.what=w.d; return; }
+    out.push({name:w.n.charAt(0).toUpperCase()+w.n.slice(1),what:w.d?w.d.charAt(0).toUpperCase()+w.d.slice(1):"",img:w.img||"",ing:w.ing||"",kind:w.k,region:w.reg||"",ll:w.ll||null,veg:null,where:[],src:"wikidata",score:w.s}); });
+  out.forEach(x=>{ x.kind=x.kind||"dish"; x.v=dishVeg(x); x.key=stripName(x.name); });
+  return out;
+}
+function commonsThumb(file,w){ return file? "https://commons.wikimedia.org/wiki/Special:FilePath/"+encodeURIComponent(file.replace(/ /g,"_"))+"?width="+(w||360) : ""; }
+// the closest planned stop to a restaurant, so a suggestion says when it fits
+function nearestStop(t,x){
+  if(x.lat==null) return null; let best=null;
+  (t.days||[]).forEach(d=>d.steps.forEach(s=>{ const p=t.places[s.place]; if(!p||p.waypoint) return; const km=kmBetween(p,x); if(!best||km<best.km) best={km,d,p}; }));
+  (t.stays||[]).forEach(s=>{ const p=t.places[s.place]; if(!p) return; const km=kmBetween(p,x); if(!best||km<best.km-.05) best={km,p,stay:s}; });
+  return best;
+}
+function fitLine(t,x){ const b=nearestStop(t,x); if(!b||b.km>25) return "";
+  const walk=Math.round(b.km*1.3/4.8*60), how=walk<=25?`${Math.max(1,walk)} min walk`:`${fmtMin(driveMin(b.km))} by road`;
+  return b.stay? `${how} from ${b.stay.name}` : `${how} from ${b.p.name} on ${fmtDay(b.d.date,true)}`; }
+/* Where to try one dish in one town, best source first. */
+function whereToTry(t,dish,city){
+  const out=[]; const inCity=x=>!city||x.lat==null||city.lat==null||kmBetween(x,city)<30;
+  (dish.where||[]).filter(inCity).forEach(w=>out.push(Object.assign({},w,{src:"Your trip file"})));
+  const W=city&&city.page&&LOC.guides[city.page];
+  if(W&&W.eats){ const k=dish.key; const rx=new RegExp("\\b"+k.replace(/ /g,"\\s+")+"\\b");
+    W.eats.filter(e=>rx.test(stripName(e.name+" "+e.text))).forEach(e=>{ if(!out.some(o=>stripName(o.name)===stripName(e.name)))
+      out.push({name:e.name,lat:e.lat,lon:e.lon,why:quoteAround(e.text,dish.name),price:e.price,url:e.url,src:"Wikivoyage"}); }); }
+  const O=city&&LOC.osm[city.key];
+  if(O&&O.items){ const k=dish.key; O.items.filter(o=>stripName(o.name+" "+o.cuisine).includes(k)).forEach(o=>{ if(!out.some(x=>stripName(x.name)===stripName(o.name)))
+      out.push({name:o.name,lat:o.lat,lon:o.lon,why:o.cuisine?o.cuisine.charAt(0).toUpperCase()+o.cuisine.slice(1):"",url:o.url,src:"OpenStreetMap"}); }); }
+  return out.slice(0,4);
+}
+// the sentence of a listing that mentions the dish, so "why" reads like a recommendation
+function quoteAround(text,name){ const k=stripName(name); const ss=String(text||"").split(/(?<=[.!?])\s+/); const s=ss.find(x=>stripName(x).includes(k))||ss[0]||""; return s.length>180? s.slice(0,177)+"…" : s; }
+function foodBlock(t){
+  const c=countryByName(t.region||""), D=c&&LOC.dishes[c.q]; const cities=tripCities(t);
+  const all=tripDishes(t); const tried=triedSet(t);
+  if(!c&&!all.length) return "";
+  if(!S.foodCity||!cities.some(x=>x.key===S.foodCity)) S.foodCity=cities[0]?cities[0].key:"";
+  const city=cities.find(x=>x.key===S.foodCity)||null;
+  if(city&&!LOC.osm[city.key]&&navigator.onLine&&all.length&&city.lat!=null){ LOC.osm[city.key]={busy:true};
+    osmDishPlaces(city,all.slice(0,25).map(x=>x.name)).then(v=>{ LOC.osm[city.key]={items:v}; render(); }).catch(()=>{ LOC.osm[city.key]={items:[]}; }); }
+  const vegTrip=t.food==="vegetarian"||t.food==="vegan"; const kind=S.foodKind||"all"; const vegOnly=S.foodVeg==null? vegTrip : S.foodVeg;
+  // the trip file's dishes for this town first, then those it doesn't tie to a town, then the country's
+  let list=all.filter(x=>kind==="all"||x.kind===kind||(kind==="dish"&&x.kind==="cheese")).filter(x=>!vegOnly||x.v!==false);
+  list.forEach(x=>{ x.w=whereToTry(t,x,city);
+    x.rank=(x.src==="trip"?(!x.city||!city||stripName(x.city)===city.key||stripName(x.city)===stripName(city.name)?0:2):1)*1000-(x.score||0)-(x.w.length?50:0)+(x.kind==="drink"?20:x.kind==="cheese"?10:0)
+      -(x.ll&&city&&city.lat!=null&&kmBetween({lat:x.ll[0],lon:x.ll[1]},city)<80?40:0); });
+  list.sort((a,b)=>a.rank-b.rank);
+  const total=list.length; if(!S.foodAll) list=list.slice(0,9);
+  const counts={all:all.length}; all.forEach(x=>{ const k=x.kind==="cheese"?"dish":x.kind; counts[k]=(counts[k]||0)+1; });
+  const triedN=all.filter(x=>tried.has(x.key)).length;
+  const card=x=>{ const w=x.w, on=tried.has(x.key), img=x.img?commonsThumb(x.img,360):"";
+    const veg=x.v===true?`<span class="diet full">Vegetarian</span>`:x.v===false?`<span class="diet meat">Meat or fish</span>`:"";
+    const q=encodeURIComponent(x.name+" "+(city?city.name:t.region||"")), ll=city&&city.lat!=null?city.lat+","+city.lon:"";
+    return `<div class="card dish ${on?"tried":""}">${img?`<img loading="lazy" alt="" src="${esc(img)}" onerror="this.remove()">`:""}
+      <div class="dish-b"><div class="spread"><span class="eyebrow">${esc({dish:"Dish",sweet:"Sweet",drink:"Drink",cheese:"Cheese"}[x.kind]||"Dish")}${x.region?` · ${esc(x.region)}`:""}</span>${veg}</div>
+      <h3>${esc(x.name)}</h3>${x.what?`<p class="small" style="margin:2px 0 4px">${esc(x.what)}</p>`:""}${x.ing?`<p class="small muted" style="margin:0 0 4px">Made with ${esc(x.ing)}</p>`:""}
+      ${w.length?`<h4>Where to try it${city?" in "+esc(city.name):""}</h4><ol class="eatlist">${w.map(p=>{ const fl=fitLine(t,p);
+        return `<li><div class="spread" style="align-items:baseline"><strong>${p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</strong>${p.price?`<span class="small muted mono" style="flex:none">${esc(p.price)}</span>`:""}</div>
+          ${p.why?`<span class="small">${esc(p.why)}</span>`:""}<span class="small muted">${esc([fl,p.src].filter(Boolean).join(" · "))}</span>
+          <span class="eatmeta">${p.lat!=null?`<a href="https://www.google.com/maps/search/${encodeURIComponent(p.name)}/@${p.lat},${p.lon},17z" target="_blank" rel="noopener">Google</a>`:""}<a href="https://www.tripadvisor.com/Search?q=${encodeURIComponent(p.name+" "+(city?city.name:""))}" target="_blank" rel="noopener">Tripadvisor</a>${p.lat!=null&&(t.days||[]).length?`<button class="linkbtn" data-dish-add data-name="${esc(p.name)}" data-what="${esc(x.name)}" data-lat="${p.lat}" data-lon="${p.lon}">Add to a day</button>`:""}</span></li>`; }).join("")}</ol>`
+        :`<p class="small muted" style="margin:6px 0">${city&&city.page&&LOC.guides[city.page]&&LOC.guides[city.page].busy?"Looking through the Wikivoyage guide…":"No named place yet. Locals' picks are a search away:"}</p>`}
+      <div class="eatmeta">${ll?`<a href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${ll},14z" target="_blank" rel="noopener">Find nearby</a>`:""}<a href="https://www.reddit.com/search/?q=${encodeURIComponent("best "+x.name+" "+(city?city.name:t.region||""))}" target="_blank" rel="noopener">Reddit picks</a><a href="https://www.tripadvisor.com/Search?q=${q}" target="_blank" rel="noopener">Tripadvisor</a></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm ${on?"primary":""}" data-dish-tried="${esc(x.key)}" aria-pressed="${on}">${on?"Tried it ✓":"Mark as tried"}</button></div></div></div>`; };
+  return `<div class="section-head"><h2>Eat like a local</h2><span class="small muted">${all.length?`Tried ${triedN} of ${all.length}`:""}</span></div>
+   <div class="card foodbar">
+    ${cities.length>1?`<div class="chips" role="group" aria-label="Town">${cities.map(x=>`<button class="chip ${x.key===S.foodCity?"on":""}" data-food-city="${esc(x.key)}" aria-pressed="${x.key===S.foodCity}">${esc(x.name)}</button>`).join("")}</div>`:""}
+    <div class="row" style="justify-content:space-between">
+     <div class="seg" role="group" aria-label="Kind">${[["all","All"],["dish","Dishes"],["sweet","Sweets"],["drink","Drinks"]].map(([k,l])=>`<button data-food-kind="${k}" aria-pressed="${kind===k}">${l} <span class="muted">${counts[k]||0}</span></button>`).join("")}</div>
+     <label class="small row" style="gap:6px"><input type="checkbox" id="food-veg" data-food-veg ${vegOnly?"checked":""}> Hide meat and fish</label></div>
+   </div>
+   ${D&&D.busy&&!all.length?`<div class="empty">Finding the dishes ${esc(c.name)} is famous for…</div>`:D&&D.error&&!all.length?`<div class="empty">${esc(D.error)} <button class="linkbtn" data-local-retry>Try again</button></div>`
+    :!list.length?`<div class="empty">${all.length?"Nothing here with these filters.":c?"No famous dishes recorded for "+esc(c.name)+" yet. Ask your AI assistant: the Copy prompt now asks for dishes and where to eat them.":""}</div>`
+    :`<div class="grid cols-3 dishes">${list.map(card).join("")}</div>
+      ${total>9?`<div class="row" style="justify-content:center;margin-top:10px"><button class="btn" data-food-all>${S.foodAll?"Show fewer":`Show all ${total}`}</button></div>`:""}`}
+   <p class="small muted" style="margin:8px 0 0">Dishes from ${t.dishes&&t.dishes.length?"your trip file and ":""}Wikidata. Places from ${t.dishes&&t.dishes.length?"your trip file, ":""}Wikivoyage's writers and OpenStreetMap; no star ratings, so check reviews and opening hours.${(t.dishes||[]).some(d=>d.where.length)?" Places from an AI assistant can be wrong or closed: check before you go.":""}</p>`;
+}
+function foodClick(el){
+  const t=trip(); if(!t) return false; const keep=()=>{ const y=window.scrollY; render(); window.scrollTo(0,y); };
+  if(el.dataset.foodCity){ S.foodCity=el.dataset.foodCity; S.foodAll=false; keep(); return true; }
+  if(el.dataset.foodKind){ S.foodKind=el.dataset.foodKind; keep(); return true; }
+  if(el.hasAttribute("data-food-all")){ S.foodAll=!S.foodAll; keep(); return true; }
+  if(el.hasAttribute("data-local-retry")){ retryLocal(t); return true; }
+  if(el.dataset.dishTried){ const s=triedSet(t), k=el.dataset.dishTried; if(s.has(k)) s.delete(k); else s.add(k); saveJSON("ts.tried."+t.id,[...s]); keep(); return true; }
+  if(el.hasAttribute("data-dish-add")){ const name=el.dataset.name, what=el.dataset.what, x={lat:+el.dataset.lat,lon:+el.dataset.lon};
+    const key=newPlaceKey(t,name); t.places[key]={name,lat:x.lat,lon:x.lon,area:t.region||"",added:true};
+    const b=bestDay(t,x); if(!b){ persistTrip(t); toast("Added "+name); keep(); return true; }
+    insertIntoDay(t,b.d,key,name+" ("+what+")"); persistTrip(t); toast(`Added ${name} to ${fmtDay(b.d.date,true)}`); keep(); ensureWx(t,true); return true; }
+  return false;
+}
 
 /* ---------- people, shared trips (Firebase) and expenses ----------
    Shared trips live in Firebase (free plan): one document per trip with its plan and member emails,

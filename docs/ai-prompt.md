@@ -164,4 +164,8 @@ Rules:
 - Give each day 3 to 8 timed steps. "next" says how to reach the following step, e.g. "Drive 40 min".
 - Add "bookBy" dates for anything that sells out, and real booking links in "url".
 - Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".
+- Add "getaround": one entry per town or city we stay in, with how to get from the airport or station ("fromAirport": mode, how, mins, cost), the transport card or pass to buy ("pass"), the taxi and transport "apps" that work there, practical "tips" and scams or mistakes to "avoid". Give "lat" and "lon" for each city.
+- Add "dishes": 8 to 15 dishes, sweets and drinks each place is famous for, with "what" (one line), "veg" (true or false), "city", and "where": 1 to 3 well-reviewed places to eat it, each with real "lat", "lon", "why" and "price" (€ to €€€€). Prefer places near our stops.
 ```
+
+The in-app *Copy prompt* also shows a sample `getaround` and `dishes` block in the format; see [`trip-file-format.md`](trip-file-format.md) for both.

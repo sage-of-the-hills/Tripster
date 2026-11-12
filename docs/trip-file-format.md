@@ -69,6 +69,36 @@ Optional things that aren't in the day plans. Shown under *Optional extras* on t
 
 `id` and `title` are required. `date` preselects the day, `time` places it in the day, `place` puts it on the map.
 
+## getaround
+
+How to get in and around each town you stay in. Shown on the Overview under *Getting around*, next to Wikivoyage's guide for that town. Every field except `city` is optional.
+
+```json
+"getaround": [
+  { "city": "Porto", "lat": 41.1496, "lon": -8.611,
+    "fromAirport": [{ "mode": "metro", "how": "Line E to Trindade", "mins": 35, "cost": "€2.60" }],
+    "pass": { "name": "Andante card", "where": "Metro machines", "tip": "Load a 24 h Tour pass" },
+    "apps": ["Bolt", "Uber", "Metro do Porto"],
+    "tips": ["The centre is steep: wear shoes with grip"],
+    "avoid": ["Driving in the old centre"] }
+]
+```
+
+`mode` picks the icon (metro, train, tram, bus, taxi, walk, ferry, car, bike, shuttle). Without `lat`/`lon` the city takes its stay's position.
+
+## dishes
+
+What to eat and where. Shown in Explore under *Eat like a local*, ahead of the country's best-known dishes from Wikidata.
+
+```json
+"dishes": [
+  { "name": "Francesinha", "what": "Layered meat sandwich in beer-tomato sauce", "veg": false, "kind": "dish", "city": "Porto",
+    "where": [{ "name": "Café Santiago", "lat": 41.1466, "lon": -8.6067, "why": "The classic", "price": "€€", "url": "" }] }
+]
+```
+
+`kind` is `dish`, `sweet`, `drink` or `cheese`. `veg` hides the dish when *Hide meat and fish* is on. Each place in `where` with `lat`/`lon` shows how far it is from that day's stops and gets an *Add to a day* button.
+
 ## checklist, notes, links
 
 ```json

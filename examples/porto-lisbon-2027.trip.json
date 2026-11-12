@@ -118,6 +118,97 @@
       ]
     }
   ],
+  "getaround": [
+    {
+      "city": "Porto",
+      "lat": 41.1496,
+      "lon": -8.611,
+      "fromAirport": [
+        {
+          "mode": "metro",
+          "how": "Metro line E (violet) from the airport to Trindade, then walk or change lines",
+          "mins": 35,
+          "cost": "€2.60"
+        },
+        {
+          "mode": "taxi",
+          "how": "Taxi, Bolt or Uber from the arrivals level",
+          "mins": 25,
+          "cost": "€25–30"
+        }
+      ],
+      "pass": {
+        "name": "Andante card",
+        "where": "Metro station machines",
+        "tip": "Buy a reusable card, then load single trips or a 24 h Andante Tour pass"
+      },
+      "apps": [
+        "Bolt",
+        "Uber",
+        "Metro do Porto",
+        "Moovit"
+      ],
+      "tips": [
+        "The centre is steep: wear shoes with grip",
+        "The Guindais funicular saves the climb from Ribeira to Batalha",
+        "Walk across the top deck of the Dom Luís I bridge to Gaia's port cellars"
+      ],
+      "avoid": [
+        "Driving and parking in the old centre",
+        "Unofficial taxi touts around Ribeira"
+      ]
+    }
+  ],
+  "dishes": [
+    {
+      "name": "Francesinha",
+      "what": "Layered meat sandwich under melted cheese and a beer-tomato sauce",
+      "veg": false,
+      "kind": "dish",
+      "city": "Porto",
+      "where": [
+        {
+          "name": "Café Santiago",
+          "lat": 41.1466,
+          "lon": -8.6067,
+          "why": "The classic; expect a queue at lunch",
+          "price": "€€"
+        }
+      ]
+    },
+    {
+      "name": "Pastel de nata",
+      "what": "Custard tart in flaky pastry, best warm with cinnamon",
+      "veg": true,
+      "kind": "sweet",
+      "city": "Porto",
+      "where": [
+        {
+          "name": "Manteigaria",
+          "lat": 41.1489,
+          "lon": -8.6067,
+          "why": "Baked all day, still warm",
+          "price": "€"
+        }
+      ]
+    },
+    {
+      "name": "Tripas à moda do Porto",
+      "what": "Tripe and white-bean stew, the dish that gave Porto people the nickname 'tripeiros'",
+      "veg": false,
+      "kind": "dish",
+      "city": "Porto",
+      "where": []
+    },
+    {
+      "name": "Port wine",
+      "what": "Fortified wine aged in the cellars across the river in Vila Nova de Gaia",
+      "veg": true,
+      "kind": "drink",
+      "city": "Porto",
+      "where": []
+    }
+  ],
   "checklist": [
     {
       "id": "passport",
