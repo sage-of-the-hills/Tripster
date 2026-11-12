@@ -327,7 +327,7 @@ function renderTabs(){
   $("#tabs").innerHTML = TABS.map(([id,label])=>`<button role="tab" id="tab-${id}" aria-selected="${S.tab===id}" data-tab="${id}">${ICON[id]}<span>${label}</span></button>`).join("");
 }
 const LOGO='<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0B5F73"/><path d="M6 23c4-1 5-6 9-6s5 3 9-1" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="1 4"/><path d="M23 5a5 5 0 0 1 5 5c0 4-5 9-5 9s-5-5-5-9a5 5 0 0 1 5-5z" fill="#F2B200"/><circle cx="23" cy="10" r="1.8" fill="#0B5F73"/></svg>';
-function netPill(){ return `<span class="netpill ${navigator.onLine?"on":""}" title="${navigator.onLine?"Online":"Offline: trips, maps and saved forecasts still work"}"><i></i>${navigator.onLine?"Online":"Offline"}</span>`; }
+function netPill(){ if(navigator.onLine) return ""; return `<span class="netpill ${navigator.onLine?"on":""}" title="${navigator.onLine?"Online":"Offline: trips, maps and saved forecasts still work"}"><i></i>${navigator.onLine?"Online":"Offline"}</span>`; }
 function renderHeader(){
   const top=$("#top"), t=trip();
   if(S.screen==="reset"){ top.innerHTML=`<div class="brandbar"><button class="back" data-home>${ICON.back}<span>Tripster</span></button>${netPill()}</div>`; return; }
@@ -375,56 +375,32 @@ function emptyState(){ return `<div class="empty">No trip open.</div>`; }
 function viewOverview(t){
   const today=todayISO(), start=dateObj(t.start), now=dateObj(today);
   const toGo = start? Math.round((start-now)/864e5) : null;
-  const bks=(t.bookings||[]), todo=bks.filter(b=>statusOf("booking",b)==="todo");
-  const trans=(t.transport||[]), car=trans.find(x=>x.kind==="car");
+  const todo=(t.bookings||[]).filter(b=>statusOf("booking",b)==="todo");
   const stays=(t.stays||[]), staysTodo=stays.filter(s=>statusOf("stay",s)==="todo");
   const checks=(t.checklist||[]), checksDone=checks.filter(c=>statusOf("check",c)==="done").length;
   const todayDay=(t.days||[]).find(d=>d.date===today);
-  const cost=stays.reduce((a,s)=>a+(typeof s.cost==="number"?s.cost:0),0);
   const sorted=[...todo].sort((a,b)=>(a.bookBy||a.date||"9999").localeCompare(b.bookBy||b.date||"9999"));
-  let countdown;
-  if(toGo>0) countdown=`<div class="count">${toGo}</div><div class="muted">days to go</div>`;
-  else if(todayDay||(today>=t.start&&today<=t.end)) countdown=`<div class="count">Today</div><div class="muted">${todayDay?esc(todayDay.title):"You're on the trip"}</div>`;
-  else countdown=`<div class="count">Done</div><div class="muted">This trip has finished</div>`;
+  const when = toGo>0? `${toGo} day${toGo===1?"":"s"} to go` : (todayDay||(today>=t.start&&today<=t.end))? "On the trip now" : "Trip finished";
+  const facts=[when, todo.length?`${todo.length} to book`:"", stays.length?`${stays.length-staysTodo.length}/${stays.length} stays booked`:"", checks.length?`${checksDone}/${checks.length} packed`:""].filter(Boolean);
+  const links=(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url)));
   return `
-  ${t.tagline?`<p style="max-width:65ch;margin:0 0 16px">${esc(t.tagline)}</p>`:""}
-  ${!Object.keys(t.places||{}).length&&!(t.days||[]).some(d=>d.steps.length)?`<div class="card emptytrip" style="margin:0 0 14px"><h3 style="margin:0 0 4px">No places yet</h3><p class="small" style="margin:0 0 10px">Pick a few and Tripster will spread them across your ${(t.days||[]).length} days.</p><button class="btn primary" data-b-fill="${esc(t.id)}">Choose places</button></div>`:""}
-
+  ${t.tagline?`<p class="muted" style="margin:0 0 12px">${esc(t.tagline)}</p>`:""}
+  ${!Object.keys(t.places||{}).length&&!(t.days||[]).some(d=>d.steps.length)?`<div class="card" style="margin:0 0 14px"><p style="margin:0 0 10px">No places yet.</p><button class="btn primary" data-b-fill="${esc(t.id)}">Choose places</button></div>`:""}
   ${alertsCard(t,true)}${liveSummary(t)}
-  <div class="grid cols-2" style="margin-bottom:14px">${peopleCard(t)}${activityCard(t)}</div>
-  <div class="hero2">
-    <div class="card">${countdown}
-      <div class="stats" style="margin-top:16px">
-        <div class="stat"><b class="mono">${todo.length}</b><span class="small muted">bookings to make</span></div>
-        <div class="stat"><b class="mono">${stays.length-staysTodo.length}/${stays.length}</b><span class="small muted">stays booked</span></div>
-        <div class="stat"><b>${car? `<span class="pill s-${statusOf("transport",car)}">${STATUS[statusOf("transport",car)]}</span>`:"–"}</b><span class="small muted">car hire</span></div>
-        ${checks.length?`<div class="stat"><b class="mono">${checksDone}/${checks.length}</b><span class="small muted">packed</span></div>`:""}
-      </div>
-    </div>
-    <div class="card">
-      <div class="spread"><h3>Book next</h3><button class="btn" data-go="bookings">All bookings</button></div>
-      ${sorted.length? `<ul class="next-list" style="margin-top:10px">${sorted.slice(0,5).map(b=>`<li><span><strong>${esc(b.title)}</strong><br><span class="small muted">${esc([fmtDay(b.date,true),b.time].filter(Boolean).join(", "))}</span></span><span class="row" style="gap:8px;flex-wrap:nowrap"><span class="small ${b.bookBy&&b.bookBy<=today?"":"muted"}" style="${b.bookBy&&b.bookBy<=today?"color:var(--bad);font-weight:700":""}">${b.bookBy?"Book by "+esc(fmtDay(b.bookBy)):"No deadline"}</span>${bookLink(t,b,"btn sm")}</span></li>`).join("")}</ul>`
-        : `<p class="muted">Everything is booked.</p>`}
-    </div>
-  </div>
-  ${todayDay?`<div class="section-head"><h2>Today: ${esc(todayDay.title)}</h2><button class="btn primary" data-day="${esc(todayDay.date)}">Open today</button></div>`:""}
-  <div class="section-head"><h2>Day by day</h2><span class="small muted">Tap a day for its map and timings</span></div>
-  <div class="grid cols-3">${(t.days||[]).map(d=>`<button class="card" data-day="${esc(d.date)}" style="text-align:left;cursor:pointer;border-top:5px solid ${esc(d.color||"var(--accent)")}">
-     <div class="eyebrow">${esc(fmtDay(d.date,true))}</div><h3 style="margin:4px 0">${esc(d.title)}</h3>
-     <div class="small muted">${esc(d.steps.filter(s=>!isStay(t,s.place)).map(s=>t.places[s.place]&&!t.places[s.place].waypoint?t.places[s.place].name:s.title).filter((v,i,a)=>a.indexOf(v)===i).slice(0,6).join(" · "))}</div>
-     ${d.stay?`<div class="small" style="margin-top:6px">Night: ${esc((stays.find(s=>s.id===d.stay)||{}).name||d.stay)}</div>`:""}</button>`).join("")}</div>
-  ${stays.length?`<div class="section-head"><h2>Where you're sleeping</h2>${cost?`<span class="mono small muted">Stays total ${money(cost,t.currency)}</span>`:""}</div>
-  <div class="grid cols-3">${stays.map(s=>`<div class="card stripe ${statusOf("stay",s)}"><div class="spread"><h3>${esc(s.name)}</h3><span class="pill s-${statusOf("stay",s)}">${STATUS[statusOf("stay",s)]}</span></div><div class="small mono muted">${esc(fmtDay(s.checkIn,true))} → ${esc(fmtDay(s.checkOut,true))}</div></div>`).join("")}</div>`:""}
+  <p class="facts">${facts.map(esc).join(" · ")}</p>
+  ${todayDay?`<div class="row" style="margin-bottom:14px"><button class="btn primary" data-day="${esc(todayDay.date)}">Open today: ${esc(todayDay.title)}</button></div>`:""}
+  ${sorted.length?`<div class="section-head"><h2>Book next</h2><button class="linkbtn" data-go="bookings">All bookings</button></div>
+    <ul class="rows card">${sorted.slice(0,5).map(b=>{ const late=b.bookBy&&b.bookBy<=today; return `<li><span><strong>${esc(b.title)}</strong><span class="small muted"> · ${b.bookBy?`<span style="${late?"color:var(--bad);font-weight:700":""}">book by ${esc(fmtDay(b.bookBy))}</span>`:esc([fmtDay(b.date,true),b.time].filter(Boolean).join(", "))}</span></span>${bookLink(t,b,"btn sm")}</li>`; }).join("")}</ul>`:""}
+  <div class="section-head"><h2>Days</h2></div>
+  <ul class="rows card">${(t.days||[]).map(d=>`<li><button class="rowbtn" data-day="${esc(d.date)}"><span class="mono small muted">${esc(fmtDay(d.date,true))}</span><strong>${esc(d.title)}</strong><span class="chev">${ICON.chev}</span></button></li>`).join("")}</ul>
   ${extrasBlock(t)}
-  ${(t.notes||[]).length?`<div class="section-head"><h2>Good to know</h2></div><div class="grid cols-2">${t.notes.map(n=>`<div class="card"><h3>${esc(n.title)}</h3><p style="margin:0">${esc(n.body)}</p></div>`).join("")}</div>`:""}
-  ${(t.links||[]).filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).length?`<div class="row" style="margin-top:14px">${t.links.filter(l=>!(liveOn(t)&&/umferdin|vedur\.is|safetravel/i.test(l.url))).map(l=>`<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
+  ${(t.notes||[]).length?`<div class="section-head"><h2>Good to know</h2></div><div class="card"><dl class="notes">${t.notes.map(n=>`<dt>${esc(n.title)}</dt><dd>${esc(n.body)}</dd>`).join("")}</dl></div>`:""}
+  ${links.length?`<div class="row" style="margin-top:12px">${links.map(l=>`<a class="btn sm" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join("")}</div>`:""}
   ${getAroundBlock(t)}
-  <div class="section-head"><h2>Share and offline</h2></div>
-  <p class="small" style="margin:0 0 8px"><strong>Share trip story</strong> sends a link showing what you did and where you went: the days, the places and a map. Nothing else goes in it: no bookings, addresses, references, costs, expenses or people. To plan together, add people with their emails instead (People, above).</p>
-  <div class="row"><button class="btn primary" data-share-link>Share trip story</button><button class="btn" data-go="offline">Offline maps</button></div>
-  <details style="margin-top:10px"><summary class="small" style="cursor:pointer;font-weight:700">Full copies (everything, including bookings and addresses)</summary>
-  <div class="row" style="margin-top:8px"><button class="btn" data-save="json">Export full trip file</button><button class="btn" data-save="html">Full one-page copy</button></div></details>
-   ${sourceOf(t.id)==="bundle"||isShared(t)?"":`<div class="row" style="margin-top:10px"><button class="btn" data-remove-trip="${esc(t.id)}">${S.confirm==="trip:"+t.id?"Tap again to remove":"Remove from this device"}</button></div>`}`;
+  <div class="section-head"><h2>People</h2></div>
+  <div class="grid cols-2">${peopleCard(t)}${activityCard(t)}</div>
+  <div class="row" style="margin-top:18px"><button class="btn" data-share-link>Share trip story</button><button class="btn" data-go="offline">Offline maps</button><button class="btn" data-save="json">Export trip file</button>
+   ${sourceOf(t.id)==="bundle"||isShared(t)?"":`<button class="btn" data-remove-trip="${esc(t.id)}">${S.confirm==="trip:"+t.id?"Tap again to remove":"Remove"}</button>`}</div>`;
 }
 
 function viewDays(t){
@@ -439,8 +415,8 @@ function viewDays(t){
   return `
   <div class="daypicker" role="group" aria-label="Choose a day">${days.map(d=>`<button data-day="${esc(d.date)}" aria-pressed="${d.date===S.day}"><i style="background:${esc(d.color||"var(--accent)")}"></i>${esc(fmtDay(d.date,true))}</button>`).join("")}</div>
   <div class="dayview">
-    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="glslot" id="glslot"></div><div class="mapnote"><span class="svgonly">Numbers follow the day's order. Stars are where you sleep. Dashed circles are maybes. Lines are simplified, not exact roads.</span><span class="glonly">${mapsStatus(t,true)}</span></div></div>
-      <div class="row" style="margin-top:10px">${link?`<a class="btn primary" href="${link}" target="_blank" rel="noopener">${ICON.map} Open the day in Google Maps</a>`:""}<button class="btn" data-go="offline">${ICON.offline} Offline maps</button></div>
+    <div><div class="mapbox" id="mapbox">${mapSVG(t,day)}<div class="glslot" id="glslot"></div><div class="mapnote"><span class="svgonly">Straight lines, not exact roads.</span><span class="glonly">${mapsStatus(t,true)}</span></div></div>
+      <div class="row" style="margin-top:10px">${link?`<a class="btn" href="${link}" target="_blank" rel="noopener">${ICON.map} Open in Google Maps</a>`:""}</div>
     </div>
     <div class="card" style="padding:14px 14px 6px">
       <div class="eyebrow" style="color:${esc(day.color||"var(--accent)")}">${esc(fmtDay(day.date,true))}</div>
@@ -526,7 +502,7 @@ function bookingCard(t,kind,b,today){
   const st=statusOf(kind,b); const when=b.date? [fmtDay(b.date,true),b.time].filter(Boolean).join(", ") : (b.at? fmtWhen(b.at):"");
   const late=st==="todo"&&b.bookBy&&b.bookBy<=today;
   return `<div class="card bk stripe ${st}">
-    <div class="spread"><div style="min-width:0"><h3>${esc(b.title)}</h3>${b.provider?`<div class="small muted">${esc(b.provider)}</div>`:""}</div><span class="pill s-${st}">${STATUS[st]}</span></div>
+    <div class="spread"><div style="min-width:0"><h3>${esc(b.title)}</h3>${b.provider?`<div class="small muted">${esc(b.provider)}</div>`:""}</div></div>
     ${when?`<div class="when">${esc(when)}${b.people?` · ${b.people} people`:""}</div>`:""}
     <dl class="kv">${b.where?`<dt>Where</dt><dd>${esc(b.where)}</dd>`:""}${b.ref?`<dt>Ref</dt><dd class="mono">${esc(b.ref)}</dd>`:""}${b.cost!=null&&b.cost!==""?`<dt>Cost</dt><dd>${money(b.cost,t.currency)}</dd>`:""}${b.bookBy&&st==="todo"?`<dt>Book by</dt><dd style="${late?"color:var(--bad);font-weight:700":""}">${esc(fmtDay(b.bookBy,true))}${late?" (overdue)":""}</dd>`:""}${b.until?`<dt>Return</dt><dd>${esc(fmtWhen(b.until))}</dd>`:""}${b.notes?`<dt>Notes</dt><dd>${esc(b.notes)}</dd>`:""}</dl>
     ${bookOptions(b)}
@@ -534,14 +510,14 @@ function bookingCard(t,kind,b,today){
 }
 function statusControl(kind,b,st){
   const opts = kind==="check"? [] : ["todo","booked","paid","optional"];
-  return `<div class="seg" role="group" aria-label="Status of ${esc(b.title)}">${opts.map(o=>`<button data-status="${o}" data-kind="${kind}" data-id="${esc(b.id)}" aria-pressed="${st===o}">${STATUS[o]}</button>`).join("")}</div>${statusMetaLine(kind,b)}`;
+  return `<select class="field sm status-sel s-${st}" data-status-sel data-kind="${kind}" data-id="${esc(b.id)}" aria-label="Status of ${esc(b.title)}">${opts.map(o=>`<option value="${o}" ${st===o?"selected":""}>${STATUS[o]}</option>`).join("")}</select>${statusMetaLine(kind,b)}`;
 }
 function checklistBlock(t){
   const groups={}; t.checklist.forEach(c=>{(groups[c.group||"Other"]=groups[c.group||"Other"]||[]).push(c)});
-  return `<div class="section-head"><h2>Packing and prep</h2><span class="small muted">Share the trip file to pass ticks on</span></div>
+  return `<div class="section-head"><h2>Packing</h2></div>
   <div class="grid cols-3">${Object.entries(groups).map(([g,list])=>`<div class="card"><h3>${esc(g)}</h3><ul class="checklist">${list.map(c=>{const d=statusOf("check",c)==="done"; return `<li class="${d?"done":""}"><label><input type="checkbox" id="chk-${esc(c.id)}" data-check="${esc(c.id)}" ${d?"checked":""}><span>${esc(c.title)}</span></label></li>`}).join("")}</ul></div>`).join("")}</div>`;
 }
-function readOnlyNote(t){ return S.trips[t.id]&&S.canWrite===false? `<span class="small muted">View only: ask the trip owner for Contributor access to change bookings.</span>` : (!S.trips[t.id]? `<span class="small muted">Saved on this device. Share the trip file to pass your ticks on.</span>`:""); }
+function readOnlyNote(t){ return S.trips[t.id]&&S.canWrite===false? `<span class="small muted">View only</span>` : ""; }
 
 function viewStays(t){
   const stays=t.stays||[], trans=t.transport||[];
@@ -553,7 +529,7 @@ function viewStays(t){
     <dt>Address</dt><dd>${esc(s.address||"")} ${s.address?`<button class="btn" style="padding:2px 8px;margin-left:4px" data-copy="${esc(s.address)}" aria-label="Copy address">${ICON.copy}</button>`:""}</dd>
     ${typeof s.cost==="number"?`<dt>Cost</dt><dd class="mono">${money(s.cost,t.currency)}${nn?` (${money(s.cost/nn,t.currency)} a night)`:""}</dd>`:""}${s.ref?`<dt>Ref</dt><dd class="mono">${esc(s.ref)}</dd>`:""}${s.cancellation?`<dt>Cancel</dt><dd>${esc(s.cancellation)}</dd>`:""}${s.notes?`<dt>Notes</dt><dd>${esc(s.notes)}</dd>`:""}</dl>
     <div class="spread" style="margin-top:10px;align-items:center">${statusControl("stay",s,st)}${p?`<a class="small" href="${gmapsPlace(p)}" target="_blank" rel="noopener">Directions</a>`:s.address?`<a class="small" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address)}" target="_blank" rel="noopener">Directions</a>`:""}</div></div>`}).join("")}</div>
-  <div class="section-head"><h2>Getting around</h2></div>
+  ${trans.length?`<div class="section-head"><h2>Travel</h2></div>`:""}
   <div class="grid cols-2">${trans.map(x=>{const st=statusOf("transport",x); const pu=t.places[x.pickup], dr=t.places[x.dropoff];
     return `<div class="card stripe ${st}"><div class="spread"><div><div class="eyebrow">${esc(x.kind==="car"?"Car hire":x.kind==="flight"?"Flight":x.kind||"Travel")}</div><h3>${esc(x.title)}</h3>${x.provider?`<div class="small muted">${esc(x.provider)}</div>`:""}</div><span class="pill s-${st}">${STATUS[st]}</span></div>
     <dl class="kv">${x.at?`<dt>${x.kind==="car"?"Pick up":"When"}</dt><dd class="mono">${esc(fmtWhen(x.at))}${pu?" · "+esc(pu.name):""}</dd>`:""}${x.until?`<dt>Return</dt><dd class="mono">${esc(fmtWhen(x.until))}${dr?" · "+esc(dr.name):""}</dd>`:""}${x.ref?`<dt>Ref</dt><dd class="mono">${esc(x.ref)}</dd>`:""}${x.notes?`<dt>Notes</dt><dd>${esc(x.notes)}</dd>`:""}</dl>
@@ -833,19 +809,19 @@ function viewWeather(t){
   const first=Object.values(W.places)[0]; const fdates=first? first.d.time : [];
   const tripDates=(t.days||[]).map(d=>d.date).filter(d=>fdates.includes(d));
   const firstDay=((t.days||[])[0]||{}).date||t.start; const opens=addDays(firstDay,-15);
-  const intro = tripDates.length? "" : `<div class="card" style="margin-bottom:14px"><strong>Trip-day forecasts start on ${esc(fmtDay(opens,true))}</strong>, 16 days before you go. Alerts begin then too. Until then, here is the forecast at your places from today, so you can check how it looks.</div>`;
+  const intro = tripDates.length? "" : `<p class="muted" style="margin:0 0 12px">Trip-day forecasts open on ${esc(fmtDay(opens,true))}. Showing the next 16 days for now.</p>`;
   return `${bar}${liveSection(t)}${alertsCard(t,false)}${intro}
-   ${tripDates.length?`<div class="section-head" style="margin-top:0"><h2>Your trip days</h2><span class="small muted">Low to high · wind/gusts · rain or snow</span></div>
+   ${tripDates.length?`<div class="section-head" style="margin-top:0"><h2>Your trip days</h2></div>
    <div class="grid cols-2">${tripDates.map(date=>{ const day=t.days.find(d=>d.date===date); const pts=TSWX.itinerary(t).filter(x=>x.date===date).slice(0,7);
-     return `<div class="card" style="border-top:5px solid ${esc(day.color||"var(--accent)")}"><div class="spread"><div><div class="eyebrow">${esc(fmtDay(date,true))}</div><h3 style="margin:2px 0 0">${esc(day.title)}</h3></div><button class="btn" data-wx-pick="${esc(date)}">Hourly</button></div>
+     return `<div class="card"><div class="spread"><div><div class="eyebrow">${esc(fmtDay(date,true))}</div><h3 style="margin:2px 0 0">${esc(day.title)}</h3></div><button class="btn" data-wx-pick="${esc(date)}">Hourly</button></div>
        <ul class="wxrows">${pts.map(({key})=>{ const px=W.places[key]; const d=px&&TSWX.day(px,date); if(!d) return ""; return `<li>${wxIcon(d.c)}<span>${esc(t.places[key].name)}<small>${esc(TSWX.WMO[d.c]||"")}</small></span><span class="num">${Math.round(d.tmin)}° / ${Math.round(d.tmax)}°<small>${precipTxt(d.p,d.sn)}</small></span><span class="num">${windTxt(d.ws,d.wg,d.wd)}</span></li>`; }).join("")}</ul></div>`; }).join("")}</div>`:""}
    ${placeForecast(t,W,tripDates)}
-   <div class="card" style="margin-top:14px"><h3>Drone flying</h3>
+   <details class="card" style="margin-top:14px"><summary>Drone flying</summary>
      <label class="small muted" for="drone-limit">Your drone's wind limit</label>
      <select id="drone-limit" class="field" style="margin-top:4px">${DRONES.map(([v,l])=>`<option value="${v}" ${S.droneLimit==v?"selected":""}>${esc(l)}</option>`).join("")}</select>
-     <p class="small" style="margin-bottom:0"><span class="dpill d0">Good</span> calm enough with margin · <span class="dpill d1">Marginal</span> gusty, hazy, dark or very cold · <span class="dpill d2">No-fly</span> wind or gusts over your limit, rain, snow or fog. Wind aloft is forecast for 120 m. Check your drone's spec sheet and local rules: many national parks and nature reserves ban drones.</p>
-   </div>
-   <p class="small muted" style="margin-top:14px">Forecast data: Open-Meteo.com. Before driving, check official warnings: ${[...(t.links||[]).filter(l=>/vedur|weather|met|warn/i.test(l.title+l.url)),{title:"MeteoAlarm (Europe)",url:"https://meteoalarm.org"}].map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join(" · ")}</p>`;
+     <p class="small" style="margin-bottom:0"><span class="dpill d0">Good</span> calm enough with margin · <span class="dpill d1">Marginal</span> gusty, hazy, dark or very cold · <span class="dpill d2">No-fly</span> wind or gusts over your limit, rain, snow or fog. Wind aloft is forecast for 120 m. Check local rules: many parks ban drones.</p>
+   </details>
+   <p class="small muted" style="margin-top:14px">Forecasts: Open-Meteo.com. Official warnings: ${[...(t.links||[]).filter(l=>/vedur|weather|met|warn/i.test(l.title+l.url)),{title:"MeteoAlarm (Europe)",url:"https://meteoalarm.org"}].map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join(" · ")}</p>`;
 }
 function placeForecast(t,W,tripDates){
   const keys=wxPoints(t).map(p=>p.key).filter(k=>W.places[k]);
@@ -884,21 +860,15 @@ function exploreLinks(t,p){
   const q=encodeURIComponent([p.name,p.area||t.region].filter(Boolean).join(", ")), ll=p.lat+","+p.lon;
   return [["Tripadvisor","Top things to do and reviews",`https://www.tripadvisor.com/Search?q=${q}`],
     ["Google Maps","Things to do nearby",`https://www.google.com/maps/search/things+to+do/@${ll},12z`],
-    ["Google Maps","Restaurants and cafés nearby",`https://www.google.com/maps/search/restaurants/@${ll},14z`],
     ["Wikivoyage","Free travel guide",`https://en.wikivoyage.org/w/index.php?search=${q}`],
-    ["Lonely Planet","Guides and highlights",`https://www.lonelyplanet.com/search?q=${q}`],
-    ["Atlas Obscura","Hidden gems",`https://www.atlasobscura.com/search?q=${q}`],
-    ["GetYourGuide","Tours and tickets",`https://www.getyourguide.com/s/?q=${q}`],
-    ["Viator","Tours and tickets",`https://www.viator.com/searchResults/all?text=${q}`]];
+    ["GetYourGuide","Tours and tickets",`https://www.getyourguide.com/s/?q=${q}`]];
 }
 function viewExplore(t){
   const keys=placeOrder(t), W=S.wx[t.id], today=todayISO();
   const dayOf={}; (t.days||[]).forEach(d=>d.steps.forEach(s=>{ (dayOf[s.place]=dayOf[s.place]||[]); if(!dayOf[s.place].includes(d.date)) dayOf[s.place].push(d.date); }));
   const R=S.placeResults;
   return `<div class="card">
-    <h2 style="margin-bottom:4px">Add a place</h2>
-    <p class="small" style="margin-top:0">Search a town, sight or landmark. Tripster adds it to this trip with its weather and links to the best things to see nearby.</p>
-    <form data-place-search class="row" role="search"><input id="place-q" class="field" style="flex:1;min-width:180px" placeholder="e.g. Vík, Skógafoss, Lisbon" autocomplete="off" value="${esc(R&&R.q||"")}"><button class="btn primary" ${navigator.onLine?"":"disabled"}>Search</button></form>
+    <form data-place-search class="row" role="search"><input id="place-q" class="field" style="flex:1;min-width:180px" placeholder="Add a place: town, sight or landmark" autocomplete="off" value="${esc(R&&R.q||"")}"><button class="btn primary" ${navigator.onLine?"":"disabled"}>Search</button></form>
     ${!navigator.onLine?`<p class="small muted">Searching needs a connection.</p>`:""}
     ${R?(R.busy?`<p class="small muted">Searching…</p>`:R.error?`<p class="small" style="color:var(--bad)">${esc(R.error)}</p>`:!R.items.length?`<p class="small muted">No places found. Try a different spelling or a nearby town.</p>`:
       `<ul class="results">${R.items.map((r,i)=>`<li><span><strong>${esc(r.name)}</strong><br><span class="small muted">${esc([r.admin1,r.country].filter(Boolean).join(", "))}</span></span>
@@ -906,8 +876,7 @@ function viewExplore(t){
   </div>
   ${exploreDays(t,keys,dayOf,W,today)}
   ${foodBlock(t)}
-  ${exploreDiscover(t)}
-  <div class="card" style="margin-top:14px"><div class="spread"><div><h3>Maps without signal</h3><p class="small" style="margin:0">Save these areas in Google Maps before you go.</p></div><button class="btn" data-go="offline">Offline maps</button></div></div>`;
+  ${exploreDiscover(t)}`;
 }
 /* Explore, one day at a time: the places on each day, then a few ideas that fit that day's plan. */
 function exploreDays(t,keys,dayOf,W,today){
@@ -926,7 +895,7 @@ function exploreDays(t,keys,dayOf,W,today){
       ${!I?(navigator.onLine?`<p class="small muted">Looking along your route…</p>`:`<p class="small muted">Ideas need a connection.</p>`):I.error?`<p class="small" style="color:var(--bad)">${esc(I.error)}</p>`:!I.items.length?`<p class="small muted">${fit.max<=1?"Nothing notable right on your way. This day is already well filled.":"Nothing well-known nearby that isn't already on your plan."}</p>`:`<div class="hscroll">${I.items.map(x=>ideaCard(t,x,d)).join("")}</div>`}</div>
       ${eatBlock(t,d)}
     </details>`; };
-  return `<div class="section-head"><h2>Your days</h2><span class="small muted">${keys.length} places · open a day for its places and ideas</span></div>
+  return `<div class="section-head"><h2>Your days</h2></div>
     <div class="daygrps">${days.map(grp).join("")}</div>
     ${stays.length?`<details class="card daygrp" data-daygrp="stays" ${S.openDays.stays?"open":""}><summary><span><span class="eyebrow">Stays</span><strong class="dg-title">Where you sleep</strong><span class="small muted">${stays.length} place${stays.length===1?"":"s"}</span></span><span class="chev">${ICON.chev}</span></summary><div class="placelist">${stays.map(k=>placeCard(t,k,dayOf[k]||[],W,today)).join("")}</div></details>`:""}
     ${loose.length?`<details class="card daygrp" data-daygrp="loose" open><summary><span><span class="eyebrow">Not on a day yet</span><strong class="dg-title">Added places</strong><span class="small muted">${loose.length} place${loose.length===1?"":"s"}</span></span><span class="chev">${ICON.chev}</span></summary><div class="placelist">${loose.map(k=>placeCard(t,k,[],W,today)).join("")}</div></details>`:""}`;
@@ -1139,23 +1108,21 @@ async function nearby(k){
 }
 
 /* ---------- home ---------- */
-function greeting(){ const h=new Date().getHours(); return h<5?"Good evening":h<12?"Good morning":h<18?"Good afternoon":"Good evening"; }
-const HERO_ART=`<svg class="hero-art" viewBox="0 0 400 220" aria-hidden="true"><g fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1.5"><circle cx="320" cy="60" r="40"/><circle cx="320" cy="60" r="72"/><circle cx="320" cy="60" r="104"/><circle cx="320" cy="60" r="136"/><circle cx="320" cy="60" r="168"/></g><g class="route"><path d="M40 200 C 110 140, 150 210, 215 150 S 290 90, 320 72" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="3" stroke-dasharray="1 10" stroke-linecap="round"/><circle cx="40" cy="200" r="6" fill="#fff"/><circle cx="215" cy="150" r="4" fill="#fff" opacity=".8"/></g><path d="M320 30a18 18 0 0 1 18 18c0 14-18 32-18 32s-18-18-18-32a18 18 0 0 1 18-18z" fill="#F2B200"/><circle cx="320" cy="48" r="6.5" fill="#0B5F73"/></svg>`;
 function tripCard(x,past,by){
   const dd=daysUntil(x.start), de=daysUntil(x.end);
   const todo=[...(x.bookings||[]).map(b=>statusFor(x,"booking",b)),...(x.transport||[]).map(b=>statusFor(x,"transport",b)),...(x.stays||[]).map(b=>statusFor(x,"stay",b))].filter(s=>s==="todo").length;
-  const al=(S.alerts[x.id]||[]).length, places=Object.values(x.places||{}).filter(p=>!p.waypoint).length;
+  const al=(S.alerts[x.id]||[]).length;
   const when=past?"Past trip":dd>1?`In ${dd} days`:dd===1?"Tomorrow":de>=0?"On now":"Past trip";
   return `<button class="card tripcard ${past?"past":""}" data-open="${esc(x.id)}">
     <span class="tc-top"><span class="eyebrow">${when}</span>${al?`<span class="pill s-alert">${al} weather alert${al>1?"s":""}</span>`:""}</span>
     <h3 style="margin:2px 0">${esc(x.title)}</h3>
     <span class="small mono muted">${esc(fmtDay(x.start,true))} – ${esc(fmtDay(x.end,true))} ${pd(x.end)?pd(x.end).y:""}</span>
-    <span class="tc-stats small"><span>${(x.days||[]).length} days</span><span>${places} places</span><span>${todo?`${todo} to book`:"All booked"}</span>${by?`<span>Planned by ${esc(by)}</span>`:""}</span></button>`;
+    <span class="tc-stats small"><span>${(x.days||[]).length} day${(x.days||[]).length===1?"":"s"}</span><span>${todo?`${todo} to book`:"All booked"}</span>${by?`<span>Planned by ${esc(by)}</span>`:""}</span></button>`;
 }
 function tripSections(ids,upcoming,past,all){
   const me=myEmail(); const order=[...upcoming,...past];
   if(!me||!Object.keys(S.index).length){
-    return `<div class="section-head"><h2>Your trips</h2>${ids.length?`<span class="small muted">Saved on this device</span>`:""}</div>
+    return `<div class="section-head"><h2>Your trips</h2></div>
     ${ids.length? `<div class="grid tripgrid">${[...upcoming.map(id=>tripCard(all[id],false)),...past.map(id=>tripCard(all[id],true))].join("")}</div>` : `<div class="empty">${S.loaded?"No trips yet. Plan one below.":"Loading…"}</div>`}`;
   }
   const isPast=id=>(all[id]&&(all[id].end||"")<todayISO());
@@ -1213,32 +1180,17 @@ Rules:
 - Include a packing "checklist", local "notes" (emergency number, driving and safety tips) and useful "links".
 - Add "getaround": one entry per town or city we stay in, with how to get from the airport or station ("fromAirport": mode, how, mins, cost), the transport card or pass to buy ("pass"), the taxi and transport "apps" that work there, practical "tips" and scams or mistakes to "avoid". Give "lat" and "lon" for each city.
 - Add "dishes": 8 to 15 dishes, sweets and drinks each place is famous for, with "what" (one line), "veg" (true or false), "city", and "where": 1 to 3 well-reviewed places to eat it, each with real "lat", "lon", "why" and "price" (€ to €€€€). Prefer places near our stops.`;
+/* Three ways to start, as plain buttons: the builder, a trip file, or a prompt for an AI assistant. */
 function planBlock(){
-  return `<div class="grid cols-3 plan">
-   <div class="card plan-main"><div class="eyebrow" style="color:var(--accent)">Recommended</div><h3>Build it with suggestions</h3>
-     <p class="small">Pick a country and dates, choose from the places most people recommend, and Tripster lays out your days, with places to eat that suit you.</p>
-     <div class="row"><button class="btn primary" data-open-builder>Start planning</button></div>
-     <p class="small muted" style="margin:0">Ideas come from Wikivoyage (written by travellers), Wikidata and OpenStreetMap. Every place links to Tripadvisor, Google and Reddit reviews.</p></div>
-   <div class="card"><div class="eyebrow">Or</div><h3>Upload a trip file</h3>
-     <p class="small">Save the reply as a file ending in <span class="mono">.trip.json</span> and upload it, or paste the text straight in. Uploading a file with the same trip id updates that trip.</p>
-     <div class="row"><label class="btn" for="file-in" style="cursor:pointer">Upload trip file</label><input type="file" id="file-in" accept=".json,application/json,text/plain" hidden><button class="btn" data-toggle-paste>Paste text</button></div>
-     <div id="paste-box" hidden><label for="paste-in" class="small muted">Paste the trip file text</label><textarea id="paste-in" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button class="btn primary" data-load-paste>Load trip</button></div></div>
-     <p id="load-msg" class="small" role="status" style="color:var(--bad)"></p></div>
-   <div class="card"><div class="eyebrow">Or</div><h3>Ask an AI assistant to plan it</h3>
-     <p class="small">Copy this prompt into Claude, ChatGPT or Gemini, fill in the brackets, and it replies with a trip file. Already planned a trip with Claude? Just ask it for "a Tripster trip file".</p>
-     <details><summary class="small" style="cursor:pointer;font-weight:700">Show the prompt</summary><pre class="code">${esc(PROMPT)}</pre></details>
-     <div class="row"><button class="btn" data-copy-prompt>Copy prompt</button><button class="btn" data-save="template">Example file</button></div></div>
-  </div>
-  <details class="card" style="margin-top:14px"><summary>How trip files work</summary>
-    <p>A trip file is a small text file (JSON) that lists a trip's places, stays, travel, bookings and day plans. Anyone with the app link can make one: with an AI assistant using the prompt above, or by editing the example file in any text editor.</p>
-    <ul class="small" style="padding-left:18px;display:grid;gap:4px">
-      <li><strong>places</strong>: every spot on the trip, each with a short key, a name, latitude and longitude. Towns that only shape a driving route get <span class="mono">"waypoint": true</span>.</li>
-      <li><strong>days</strong>: one entry per date with timed <strong>steps</strong> that point at places. A step can link a booking.</li>
-      <li><strong>stays</strong>, <strong>transport</strong> and <strong>bookings</strong>: each has a status of <span class="mono">todo</span>, <span class="mono">booked</span>, <span class="mono">paid</span> or <span class="mono">optional</span>, plus optional cost, reference, booking link and "book by" date.</li>
-      <li><strong>checklist</strong>, <strong>notes</strong> and <strong>links</strong>: packing list, local tips and useful websites.</li>
-      <li>Optional <strong>region</strong> (e.g. "Portugal") sharpens the Explore links. Weather and Explore work from the places' coordinates.</li>
-    </ul>
-    <pre class="code">${esc(JSON.stringify(TEMPLATE,null,2))}</pre></details>`;
+  return `<div class="card plan">
+     <div class="row"><button class="btn primary" data-open-builder>Plan a trip</button>
+       <label class="btn" for="file-in" style="cursor:pointer">Upload trip file</label><input type="file" id="file-in" accept=".json,application/json,text/plain" hidden>
+       <button class="btn" data-toggle-paste>Paste</button>
+       <button class="btn" data-copy-prompt>Copy AI prompt</button></div>
+     <div id="paste-box" hidden><textarea id="paste-in" spellcheck="false" aria-label="Trip file text" placeholder="Paste the trip file here"></textarea><div class="row" style="margin-top:8px"><button class="btn primary" data-load-paste>Load trip</button></div></div>
+     <p id="load-msg" class="small" role="status" style="color:var(--bad);margin:0"></p>
+     <p class="small muted" style="margin:0">The AI prompt works in Claude, ChatGPT or Gemini and returns a trip file. <button class="linkbtn" data-save="template">Example file</button></p>
+  </div>`;
 }
 /* Start fresh: wipe this device, and for a signed-in account, delete every trip the account planned
    (with its ticks, expenses and change log), its trip stories and its saved name. The sign-in itself stays.
@@ -1291,31 +1243,18 @@ function viewHome(){
   const all=allTrips(), today=todayISO();
   const ids=Object.keys(all).sort((a,b)=>(all[a].start||"").localeCompare(all[b].start||""));
   const upcoming=ids.filter(id=>(all[id].end||"")>=today), past=ids.filter(id=>(all[id].end||"")<today).reverse();
-  const next=upcoming[0]&&all[upcoming[0]], name=S.userName;
-  let lead;
-  if(!S.loaded) lead="Loading your trips…";
-  else if(next){ const dd=daysUntil(next.start); const al=(S.alerts[next.id]||[]).length;
-    lead = (dd>1? `${esc(next.title)} starts in <strong>${dd} days</strong>.` : dd===1? `${esc(next.title)} starts <strong>tomorrow</strong>.` : `You're on <strong>${esc(next.title)}</strong>. Have a great day out there.`) + (al?` <strong>${al} weather alert${al>1?"s":""}</strong> for your trip.`:""); }
-  else lead="Where to next? Add a trip and Tripster lays it all out: bookings, stays, day maps, weather and the best things to see.";
-  return `${accountBar()}${incomingCard()}<section class="hero">${HERO_ART}<div class="hero-in">
-      <p class="hello">${esc(greeting())}${name?", "+esc(name):""}</p>
-      <h1 class="hero-h">${name? (next&&daysUntil(next.start)<=0?"Enjoy the trip.":"Ready for the road?") : "Welcome to Tripster"}</h1>
-      <p class="hero-lead">${lead}</p>
-      ${next?`<div class="row"><button class="btn sun" data-open="${esc(next.id)}">Open ${esc(next.title)}</button></div>`:S.loaded?`<div class="row"><button class="btn sun" data-scroll-plan>Plan your first trip</button></div>`:""}
-      ${!name&&!CLOUD.user&&!S.renaming?`<form class="namebox" data-name-form><label for="name-in">${name?"Change your name":"What should we call you?"}</label><div class="row"><input id="name-in" autocomplete="given-name" placeholder="Your first name" value="${esc(name)}"><button class="btn sun">Save</button></div></form>`:""}
-    </div></section>
+  return `${accountBar()}${incomingCard()}
     ${tripSections(ids,upcoming,past,all)}
     ${stories().length?`<div class="section-head"><h2>Trip stories from friends</h2></div><div class="grid tripgrid">${stories().map((st,i)=>`<button class="card tripcard past" data-story="${i}"><span class="eyebrow">Trip story${st.by?` from ${esc(st.by)}`:""}</span><h3 style="margin:2px 0">${esc(st.title)}</h3><span class="small mono muted">${esc(fmtDay(st.start,true))} – ${esc(fmtDay(st.end,true))} ${pd(st.end)?pd(st.end).y:""}</span><span class="tc-stats small"><span>${st.days.length} days</span><span>${st.days.reduce((a,d)=>a+d.p.length,0)} places</span></span></button>`).join("")}</div>`:""}
-    <div class="section-head" id="plan"><h2>Plan a new trip</h2><span class="small muted">Three ways to start</span></div>
+    <div class="section-head" id="plan"><h2>New trip</h2></div>
     ${planBlock()}
     <footer class="homefoot">
-      <details><summary>Install on this device</summary><div style="margin-top:8px">${installCard()}</div></details>
-      <span class="dot">·</span><button class="linkbtn" data-save="backup">Save backup</button>
-      <span class="dot">·</span><label class="linkbtn" for="backup-in" style="cursor:pointer">Restore backup</label><input type="file" id="backup-in" accept=".json,application/json" hidden>
+      <details><summary>Install</summary><div style="margin-top:8px">${installCard()}</div></details>
+      <span class="dot">·</span><button class="linkbtn" data-save="backup">Backup</button>
+      <span class="dot">·</span><label class="linkbtn" for="backup-in" style="cursor:pointer">Restore</label><input type="file" id="backup-in" accept=".json,application/json" hidden>
       <span class="dot">·</span><button class="linkbtn" data-alerts>Weather alerts: ${S.alertsOn?"on":"off"}</button>
       <span class="dot">·</span><button class="linkbtn" data-reset-open>Start fresh</button>
-      <p class="small muted" style="flex-basis:100%;margin:6px 0 0">Trips are saved on this device${fbConfig()?"; shared trips also sync to your group":""}. Tripster goes online only for weather, places, travel guides${fbConfig()?" and shared trips":""}.</p>
-    <p class="small muted" style="margin:8px 0 0">Tripster ${APP_VERSION}</p></footer>`;
+      <span class="dot">·</span><span class="muted">v${APP_VERSION}</span></footer>`;
 }
 function createTrip(f){
   const title=f.title.value.trim(), start=f.start.value, end=f.end.value, msg=$("#nt-msg");
@@ -1378,6 +1317,7 @@ function onChange(el){
   if(builderInput(el)) return true;
   if(el.id==="wx-place"){ S.wxPlace=el.value; S.wxDate=null; render(); return true; }
   if(el.id==="drone-limit"){ S.droneLimit=+el.value; store.set("ts.drone",String(S.droneLimit)); render(); return true; }
+  if(el.dataset&&el.dataset.statusSel!==undefined){ const t=trip(); const list={booking:t.bookings,stay:t.stays,transport:t.transport}[el.dataset.kind]||[]; const item=list.find(x=>x.id===el.dataset.id); if(item) setStatus(el.dataset.kind,item,el.value); return true; }
   if(el.id==="food-veg"){ S.foodVeg=el.checked; const y=window.scrollY; render(); window.scrollTo(0,y); return true; }
   return false;
 }
@@ -1596,13 +1536,13 @@ function liveSection(t){
   const relay=relayURL(), country=maCountry(t), ice=inIceland(t), cards=[];
   if(country){
     let body;
-    if(!relay) body=`<p class="small" style="margin:0">To show official warnings here, set up the free Tripster data relay (docs/data-relay.md in the Tripster project). Until then, tap the source below.</p>`;
+    if(!relay) body=null;
     else if(!L.warnings) body=`<p class="small muted">Loading…</p>`;
     else { const ws=warningsForTrip(t,L); const show=ws.filter(w=>w.hit.length).concat(ws.filter(w=>!w.hit.length)); const before=todayISO()<t.start;
       body = !ws.length? `<p style="margin:0"><strong>No official warnings in force.</strong></p>` :
         `${before?`<p class="small muted" style="margin:0 0 6px">In force now, before your trip. Warnings during your trip show here as they're issued, usually 1 to 3 days ahead.</p>`:""}<ul class="alist">${show.slice(0,before?3:6).map(w=>`<li><span class="lvl" style="background:${WCOL[w.color]||"var(--todo-soft)"};color:${w.color==="yellow"?"#13212B":"#fff"}">${esc(w.color||w.severity||"Warning")}</span><span><strong>${esc(w.event.replace(/^Weather Warning:\s*/,""))}</strong>: ${esc(w.areas.join(", "))}<br><span class="small mono">${esc(fmtDT(w.onset))} to ${esc(fmtDT(w.expires))}</span>${w.hit.length?`<br><span class="small" style="${w.during?"color:var(--bad);font-weight:700":"color:var(--muted)"}">${w.during?"Covers":"Area includes"} ${esc(w.hit.slice(0,4).join(", "))}${w.hit.length>4?` and ${w.hit.length-4} more of your places`:""}</span>`:""}<details><summary class="small" style="cursor:pointer">Details</summary><p class="small" style="margin:4px 0 0">${esc(w.headline)}. ${esc(w.text)}</p></details></span></li>`).join("")}</ul>${show.length>(before?3:6)?`<p class="small muted">${show.length-(before?3:6)} more warnings in force.</p>`:""}`;
       body += L.warnings.error?`<p class="small" style="color:var(--bad)">Couldn't refresh; showing the last saved list.</p>`:""; }
-    cards.push(`<div class="card"><div class="spread"><h3>Official weather warnings</h3>${L.warnings&&L.warnings.at?`<span class="small muted">${esc(ago(L.warnings.at))}</span>`:""}</div>${body}<div class="row" style="margin-top:8px">${srcLink(ice?"Source: Icelandic Met Office via MeteoAlarm":"Source: MeteoAlarm", ice?"https://en.vedur.is/alerts":"https://meteoalarm.org")}</div></div>`);
+    if(body!==null) cards.push(`<div class="card"><div class="spread"><h3>Official weather warnings</h3>${L.warnings&&L.warnings.at?`<span class="small muted">${esc(ago(L.warnings.at))}</span>`:""}</div>${body}<div class="row" style="margin-top:8px">${srcLink(ice?"Source: Icelandic Met Office via MeteoAlarm":"Source: MeteoAlarm", ice?"https://en.vedur.is/alerts":"https://meteoalarm.org")}</div></div>`);
   }
   if(ice){
     const st=L.safetravel; const items=(st&&st.items)||[];
@@ -1611,7 +1551,7 @@ function liveSection(t){
       ${st&&st.error?`<p class="small" style="color:var(--bad)">Couldn't refresh; showing the last saved alerts.</p>`:""}
       <div class="row" style="margin-top:8px">${srcLink("Source: Safetravel.is (ICE-SAR)","https://safetravel.is")}</div></div>`);
     let rb;
-    if(!relay) rb=`<p class="small" style="margin:0">To show road conditions here, set up the free Tripster data relay (docs/data-relay.md in the Tripster project). Until then, tap the source below for the live road map.</p>`;
+    if(!relay) rb=null;
     else if(!L.roads) rb=`<p class="small muted">Loading…</p>`;
     else { const {mine,closedElsewhere,rank}=roadsForTrip(t,L); const bad=mine.filter(r=>rank(r.state)<3);
       rb=`<p style="margin:0 0 6px"><strong>${!mine.length?"No road sections matched your places.":bad.length?`${bad.length} of ${mine.length} sections near your places need care`:`All ${mine.length} sections near your places are easily passable`}</strong></p>
@@ -1619,7 +1559,7 @@ function liveSection(t){
         ${mine.length>8?`<button class="linkbtn small" data-roads-all>${S.roadsAll?"Show fewer":"Show all "+mine.length}</button>`:""}
         ${closedElsewhere.length?`<details style="margin-top:6px"><summary class="small" style="cursor:pointer;font-weight:700">${closedElsewhere.length} closed or impassable elsewhere in Iceland</summary><ul class="small" style="padding-left:18px">${closedElsewhere.map(r=>`<li>${esc(r.name)}: ${esc(r.desc)}</li>`).join("")}</ul></details>`:""}
         ${L.roads.error?`<p class="small" style="color:var(--bad)">Couldn't refresh; showing the last saved conditions.</p>`:""}`; }
-    cards.push(`<div class="card"><div class="spread"><h3>Roads near your places</h3>${L.roads&&L.roads.at?`<span class="small muted">${esc(ago(L.roads.at))}</span>`:""}</div>${rb}<div class="row" style="margin-top:8px">${srcLink("Source: Icelandic Road Administration","https://umferdin.is/en")}</div></div>`);
+    if(rb!==null) cards.push(`<div class="card"><div class="spread"><h3>Roads near your places</h3>${L.roads&&L.roads.at?`<span class="small muted">${esc(ago(L.roads.at))}</span>`:""}</div>${rb}<div class="row" style="margin-top:8px">${srcLink("Source: Icelandic Road Administration","https://umferdin.is/en")}</div></div>`);
   }
   if(auroraZone(t)){
     const nights=auroraNights(t,L);
@@ -1628,6 +1568,7 @@ function liveSection(t){
       <p class="small muted" style="margin-bottom:0">Best 22:00–02:00 away from town lights. Aurora activity is forecast 3 days ahead; cloud 16 days ahead.</p>
       <div class="row" style="margin-top:8px">${srcLink("Activity: NOAA Space Weather","https://www.swpc.noaa.gov/products/aurora-30-minute-forecast")}${ice?srcLink("Cloud map: Icelandic Met Office","https://en.vedur.is/weather/forecasts/aurora/"):""}</div></div>`);
   }
+  if(!cards.length) return "";
   return `<div class="section-head" style="margin-top:0"><h2>Live conditions</h2><span class="row small muted">${L.at?"Checked "+esc(ago(L.at)):""}<button class="btn" data-live-refresh ${S.liveBusy&&S.liveBusy[t.id]||!navigator.onLine?"disabled":""}>${S.liveBusy&&S.liveBusy[t.id]?"Checking…":"Check now"}</button></span></div>
     <div class="grid cols-2" style="margin-bottom:18px">${cards.join("")}</div>`;
 }
@@ -1658,7 +1599,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.19.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.20.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -2168,7 +2109,7 @@ function builderInput(el){
 function exploreDiscover(t){
   const c=countryByName(t.region||""); if(!c) return COUNTRIES? `<div class="card" style="margin-top:14px"><h3>Discover more</h3><p class="small" style="margin:0">Set the trip's country to get highlights, lesser-known places and road trips: add a place in that country above, or plan with the trip builder.</p></div>` : "";
   const D=S.bData&&S.bData.q===c.q? S.bData : null; const mode=S.discMode||"famous";
-  if(!D){ return `<div class="card" style="margin-top:14px"><div class="spread"><div><h3>Discover ${esc(c.name)}</h3><p class="small" style="margin:0">Well-known highlights, off-the-beaten-path places, famous road trips and how to get around.</p></div><button class="btn primary" data-disc-load ${navigator.onLine?"":"disabled"}>Show ideas</button></div></div>`; }
+  if(!D){ return `<div class="card" style="margin-top:14px"><div class="spread"><h3 style="margin:0">Discover ${esc(c.name)}</h3><button class="btn primary" data-disc-load ${navigator.onLine?"":"disabled"}>Show ideas</button></div></div>`; }
   if(D.busy) return `<div class="empty" style="margin-top:14px">Finding places in ${esc(c.name)}…</div>`;
   const list=mode==="road"? [] : suggestionList({style:mode},D).filter(x=>x.lat!=null&&!onTrip(t,x));
   const planned=(t.days||[]).some(d=>dayRoute(t,d).length);
@@ -2195,7 +2136,7 @@ async function discoverClick(el){
 function bestDay(t,x){ let best=null; (t.days||[]).forEach(d=>{ const ins=bestInsert(t,d,x); if(ins&&(!best||ins.extra<best.ins.extra)) best={d,ins}; }); return best; }
 function guideBlock(t){
   if(!t.guide||!t.guide.html) return "";
-  return `<div class="section-head"><h2>${esc(t.guide.title||"Getting around")}</h2></div><details class="card guide"><summary>Read the guide (saved for offline)</summary>${safeHTML(t.guide.html)}<p class="small muted">From Wikivoyage (CC BY-SA). ${t.guide.source?srcLink("Full guide",t.guide.source):""}</p></details>`;
+  return `<details class="card guide" style="margin-top:12px"><summary>${esc(t.guide.title||"Getting around")}</summary>${safeHTML(t.guide.html)}<p class="small muted">From Wikivoyage, CC BY-SA. ${t.guide.source?srcLink("Full page",t.guide.source):""}</p></details>`;
 }
 
 /* ---------- local know-how: getting around each city, and the dishes to try ----------
@@ -2347,25 +2288,19 @@ function getAroundBlock(t){
   if(!cities.length) return guideBlock(t);
   const card=c=>{ const g=c.ga, W=c.page&&LOC.guides[c.page];
     const stay=stays.find(s=>c.stays.includes(s.id)), sp=stay&&t.places[stay.place];
-    const n=c.stays.reduce((a,id)=>{ const s=stays.find(x=>x.id===id); return a+(s&&nights(s.checkIn,s.checkOut)||0); },0);
-    const li=a=>`<li><span class="mode" aria-hidden="true">${modeIcon(a.mode||a.how)}</span><span>${esc(a.how)}${a.mins||a.cost?`<span class="small muted"> · ${esc([a.mins?a.mins+" min":"",a.cost||""].filter(Boolean).join(" · "))}</span>`:""}</span></li>`;
-    return `<div class="card ga">
-      <div class="spread"><h3>${esc(c.name)}</h3>${n?`<span class="small muted">${n} night${n===1?"":"s"}</span>`:""}</div>
-      ${g&&g.fromAirport.length?`<h4>Arriving</h4><ul class="ga-list">${g.fromAirport.map(li).join("")}</ul>`:""}
-      ${g&&g.pass?`<h4>Ticket or pass</h4><p class="small" style="margin:0"><strong>${esc(g.pass.name)}</strong>${g.pass.where?` · ${esc(g.pass.where)}`:""}${g.pass.tip?`<br>${esc(g.pass.tip)}`:""}</p>`:""}
-      ${g&&g.apps.length?`<h4>Apps that work here</h4><div class="chips">${g.apps.map(a=>`<span class="chip">${esc(a)}</span>`).join("")}</div>`:""}
-      ${g&&g.tips.length?`<h4>Tips</h4><ul class="small ga-tips">${g.tips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
-      ${g&&g.avoid.length?`<h4>Avoid</h4><ul class="small ga-tips ga-avoid">${g.avoid.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
-      ${!g?`<p class="small muted" style="margin:4px 0 0">Ask your AI assistant for this town's airport transfer, passes and tips: the Copy prompt on the home page now asks for them.</p>`:""}
-      ${W&&W.busy?`<p class="small muted">Getting the Wikivoyage guide…</p>`:W&&W.error?`<p class="small" style="color:var(--bad)">${esc(W.error)} <button class="linkbtn" data-local-retry>Try again</button></p>`:""}
-      ${W&&W.getin?`<details class="guide"><summary>Arriving: the Wikivoyage guide</summary>${W.getin}</details>`:""}
-      ${W&&W.around?`<details class="guide"><summary>Getting around ${esc(c.name)}: the Wikivoyage guide</summary>${W.around}</details>`:""}
-      <div class="row" style="margin-top:10px">${sp?`<a class="btn sm" href="${gmapsTransit(sp)}" target="_blank" rel="noopener">${ICON.map} Public transport to ${esc(stay.name)}</a>`:""}${c.page?srcLink("Wikivoyage","https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.page)):""}</div>
+    const li=a=>`<li>${modeIcon(a.mode||a.how)} ${esc(a.how)}${a.mins||a.cost?`<span class="muted"> · ${esc([a.mins?a.mins+" min":"",a.cost||""].filter(Boolean).join(" · "))}</span>`:""}</li>`;
+    const tips=g? [...g.tips.map(x=>esc(x)), ...g.avoid.map(x=>`<strong>Avoid:</strong> ${esc(x)}`)] : [];
+    return `<div class="card ga"><h3>${esc(c.name)}</h3>
+      ${g&&g.fromAirport.length?`<ul class="plain">${g.fromAirport.map(li).join("")}</ul>`:""}
+      ${g&&g.pass?`<p class="small" style="margin:6px 0 0"><strong>${esc(g.pass.name)}</strong>${g.pass.where?` (${esc(g.pass.where)})`:""}${g.pass.tip?`: ${esc(g.pass.tip)}`:""}</p>`:""}
+      ${g&&g.apps.length?`<p class="small" style="margin:6px 0 0"><span class="muted">Apps:</span> ${g.apps.map(esc).join(", ")}</p>`:""}
+      ${tips.length?`<ul class="small ga-tips">${tips.map(x=>`<li>${x}</li>`).join("")}</ul>`:""}
+      ${W&&W.error?`<p class="small" style="color:var(--bad)">${esc(W.error)} <button class="linkbtn" data-local-retry>Try again</button></p>`:""}
+      ${W&&(W.getin||W.around)?`<details class="guide"><summary>Wikivoyage guide</summary>${W.getin?`<h4>Arriving</h4>${W.getin}`:""}${W.around?`<h4>Getting around</h4>${W.around}`:""}<p class="small muted">From Wikivoyage, CC BY-SA. ${srcLink("Full page","https://en.wikivoyage.org/wiki/"+encodeURIComponent(c.page))}</p></details>`:""}
+      ${sp?`<p class="small" style="margin:8px 0 0"><a href="${gmapsTransit(sp)}" target="_blank" rel="noopener">Public transport to ${esc(stay.name)}</a></p>`:""}
     </div>`; };
-  const anyWv=cities.some(c=>c.page&&LOC.guides[c.page]&&(LOC.guides[c.page].getin||LOC.guides[c.page].around));
-  return `<div class="section-head"><h2>Getting around</h2><span class="small muted">For each place you stay · saved for offline</span></div>
+  return `<div class="section-head"><h2>Getting around</h2></div>
     <div class="grid cols-2">${cities.map(card).join("")}</div>
-    ${anyWv?`<p class="small muted" style="margin:6px 0 0">Guides from Wikivoyage (CC BY-SA), written by travellers. Check fares and times locally.</p>`:""}
     ${guideBlock(t)}`;
 }
 /* "Then: walk 10 min" on the timeline gets a directions link in the right mode */
@@ -2432,33 +2367,29 @@ function foodBlock(t){
       -(x.ll&&city&&city.lat!=null&&kmBetween({lat:x.ll[0],lon:x.ll[1]},city)<80?40:0); });
   list.sort((a,b)=>a.rank-b.rank);
   const total=list.length; if(!S.foodAll) list=list.slice(0,9);
-  const counts={all:all.length}; all.forEach(x=>{ const k=x.kind==="cheese"?"dish":x.kind; counts[k]=(counts[k]||0)+1; });
   const triedN=all.filter(x=>tried.has(x.key)).length;
-  const card=x=>{ const w=x.w, on=tried.has(x.key), img=x.img?commonsThumb(x.img,360):"";
-    const veg=x.v===true?`<span class="diet full">Vegetarian</span>`:x.v===false?`<span class="diet meat">Meat or fish</span>`:"";
-    const q=encodeURIComponent(x.name+" "+(city?city.name:t.region||"")), ll=city&&city.lat!=null?city.lat+","+city.lon:"";
-    return `<div class="card dish ${on?"tried":""}">${img?`<img loading="lazy" alt="" src="${esc(img)}" onerror="this.remove()">`:""}
-      <div class="dish-b"><div class="spread"><span class="eyebrow">${esc({dish:"Dish",sweet:"Sweet",drink:"Drink",cheese:"Cheese"}[x.kind]||"Dish")}${x.region?` · ${esc(x.region)}`:""}</span>${veg}</div>
-      <h3>${esc(x.name)}</h3>${x.what?`<p class="small" style="margin:2px 0 4px">${esc(x.what)}</p>`:""}${x.ing?`<p class="small muted" style="margin:0 0 4px">Made with ${esc(x.ing)}</p>`:""}
-      ${w.length?`<h4>Where to try it${city?" in "+esc(city.name):""}</h4><ol class="eatlist">${w.map(p=>{ const fl=fitLine(t,p);
-        return `<li><div class="spread" style="align-items:baseline"><strong>${p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</strong>${p.price?`<span class="small muted mono" style="flex:none">${esc(p.price)}</span>`:""}</div>
-          ${p.why?`<span class="small">${esc(p.why)}</span>`:""}<span class="small muted">${esc([fl,p.src].filter(Boolean).join(" · "))}</span>
-          <span class="eatmeta">${p.lat!=null?`<a href="https://www.google.com/maps/search/${encodeURIComponent(p.name)}/@${p.lat},${p.lon},17z" target="_blank" rel="noopener">Google</a>`:""}<a href="https://www.tripadvisor.com/Search?q=${encodeURIComponent(p.name+" "+(city?city.name:""))}" target="_blank" rel="noopener">Tripadvisor</a>${p.lat!=null&&(t.days||[]).length?`<button class="linkbtn" data-dish-add data-name="${esc(p.name)}" data-what="${esc(x.name)}" data-lat="${p.lat}" data-lon="${p.lon}">Add to a day</button>`:""}</span></li>`; }).join("")}</ol>`
-        :`<p class="small muted" style="margin:6px 0">${city&&city.page&&LOC.guides[city.page]&&LOC.guides[city.page].busy?"Looking through the Wikivoyage guide…":"No named place yet. Locals' picks are a search away:"}</p>`}
-      <div class="eatmeta">${ll?`<a href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${ll},14z" target="_blank" rel="noopener">Find nearby</a>`:""}<a href="https://www.reddit.com/search/?q=${encodeURIComponent("best "+x.name+" "+(city?city.name:t.region||""))}" target="_blank" rel="noopener">Reddit picks</a><a href="https://www.tripadvisor.com/Search?q=${q}" target="_blank" rel="noopener">Tripadvisor</a></div>
-      <div class="row" style="margin-top:8px"><button class="btn sm ${on?"primary":""}" data-dish-tried="${esc(x.key)}" aria-pressed="${on}">${on?"Tried it ✓":"Mark as tried"}</button></div></div></div>`; };
-  return `<div class="section-head"><h2>Eat like a local</h2><span class="small muted">${all.length?`Tried ${triedN} of ${all.length}`:""}</span></div>
-   <div class="card foodbar">
-    ${cities.length>1?`<div class="chips" role="group" aria-label="Town">${cities.map(x=>`<button class="chip ${x.key===S.foodCity?"on":""}" data-food-city="${esc(x.key)}" aria-pressed="${x.key===S.foodCity}">${esc(x.name)}</button>`).join("")}</div>`:""}
-    <div class="row" style="justify-content:space-between">
-     <div class="seg" role="group" aria-label="Kind">${[["all","All"],["dish","Dishes"],["sweet","Sweets"],["drink","Drinks"]].map(([k,l])=>`<button data-food-kind="${k}" aria-pressed="${kind===k}">${l} <span class="muted">${counts[k]||0}</span></button>`).join("")}</div>
-     <label class="small row" style="gap:6px"><input type="checkbox" id="food-veg" data-food-veg ${vegOnly?"checked":""}> Hide meat and fish</label></div>
+  const card=x=>{ const w=x.w, on=tried.has(x.key), img=x.img?commonsThumb(x.img,160):"";
+    const meta=[{dish:"Dish",sweet:"Sweet",drink:"Drink",cheese:"Cheese"}[x.kind]||"Dish", x.v===true?"vegetarian":x.v===false?"meat or fish":"", x.region].filter(Boolean).join(" · ");
+    const ll=city&&city.lat!=null?city.lat+","+city.lon:"";
+    return `<li class="dish ${on?"tried":""}">${img?`<img loading="lazy" alt="" src="${esc(img)}" onerror="this.style.visibility='hidden'">`:`<span class="noimg"></span>`}
+      <div class="dish-b"><div class="spread" style="flex-wrap:nowrap"><strong>${esc(x.name)}</strong><button class="tick" data-dish-tried="${esc(x.key)}" aria-pressed="${on}" title="${on?"Tried it":"Mark as tried"}">✓</button></div>
+      <span class="small muted">${esc(meta)}</span>${x.what?`<span class="small">${esc(x.what)}</span>`:""}
+      ${w.length?`<details class="small"><summary>Where to try it${city?" in "+esc(city.name):""} (${w.length})</summary><ul class="plain">${w.map(p=>{ const fl=fitLine(t,p);
+          return `<li><strong>${p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:p.lat!=null?`<a href="https://www.google.com/maps/search/${encodeURIComponent(p.name)}/@${p.lat},${p.lon},17z" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</strong>${p.price?` <span class="mono muted">${esc(p.price)}</span>`:""}${p.why?` · ${esc(p.why)}`:""}
+            <br><span class="muted">${esc([fl,p.src].filter(Boolean).join(" · "))}</span>${p.lat!=null&&(t.days||[]).length?` <button class="linkbtn" data-dish-add data-name="${esc(p.name)}" data-what="${esc(x.name)}" data-lat="${p.lat}" data-lon="${p.lon}">Add to a day</button>`:""}</li>`; }).join("")}</ul></details>`
+        :ll?`<a class="small" href="https://www.google.com/maps/search/${encodeURIComponent(x.name)}/@${ll},14z" target="_blank" rel="noopener">Find it nearby</a>`:""}
+      </div></li>`; };
+  return `<div class="section-head"><h2>Food</h2>${all.length?`<span class="small muted">Tried ${triedN} of ${all.length}</span>`:""}</div>
+   <div class="row foodbar">
+    ${cities.length>1?cities.map(x=>`<button class="chip ${x.key===S.foodCity?"on":""}" data-food-city="${esc(x.key)}" aria-pressed="${x.key===S.foodCity}">${esc(x.name)}</button>`).join(""):""}
+    <div class="seg" role="group" aria-label="Kind">${[["all","All"],["dish","Dishes"],["sweet","Sweets"],["drink","Drinks"]].map(([k,l])=>`<button data-food-kind="${k}" aria-pressed="${kind===k}">${l}</button>`).join("")}</div>
+    <label class="small row" style="gap:6px"><input type="checkbox" id="food-veg" data-food-veg ${vegOnly?"checked":""}> No meat or fish</label>
    </div>
-   ${D&&D.busy&&!all.length?`<div class="empty">Finding the dishes ${esc(c.name)} is famous for…</div>`:D&&D.error&&!all.length?`<div class="empty">${esc(D.error)} <button class="linkbtn" data-local-retry>Try again</button></div>`
-    :!list.length?`<div class="empty">${all.length?"Nothing here with these filters.":c?"No famous dishes recorded for "+esc(c.name)+" yet. Ask your AI assistant: the Copy prompt now asks for dishes and where to eat them.":""}</div>`
-    :`<div class="grid cols-3 dishes">${list.map(card).join("")}</div>
-      ${total>9?`<div class="row" style="justify-content:center;margin-top:10px"><button class="btn" data-food-all>${S.foodAll?"Show fewer":`Show all ${total}`}</button></div>`:""}`}
-   <p class="small muted" style="margin:8px 0 0">Dishes from ${t.dishes&&t.dishes.length?"your trip file and ":""}Wikidata. Places from ${t.dishes&&t.dishes.length?"your trip file, ":""}Wikivoyage's writers and OpenStreetMap; no star ratings, so check reviews and opening hours.${(t.dishes||[]).some(d=>d.where.length)?" Places from an AI assistant can be wrong or closed: check before you go.":""}</p>`;
+   ${D&&D.busy&&!all.length?`<p class="muted">Finding dishes…</p>`:D&&D.error&&!all.length?`<p class="muted">${esc(D.error)} <button class="linkbtn" data-local-retry>Try again</button></p>`
+    :!list.length?`<p class="muted">${all.length?"Nothing with these filters.":"No dishes found for this country."}</p>`
+    :`<ul class="dishlist card">${list.map(card).join("")}</ul>
+      ${total>9?`<div class="row" style="justify-content:center;margin-top:10px"><button class="linkbtn" data-food-all>${S.foodAll?"Show fewer":`Show all ${total}`}</button></div>`:""}`}
+   <p class="small muted" style="margin:8px 0 0">Dishes from Wikidata; places from ${t.dishes&&t.dishes.length?"your trip file, ":""}Wikivoyage and OpenStreetMap. Check reviews before you go.</p>`;
 }
 function foodClick(el){
   const t=trip(); if(!t) return false; const keep=()=>{ const y=window.scrollY; render(); window.scrollTo(0,y); };
@@ -2674,12 +2605,12 @@ function peopleCard(t){
       <input type="hidden" name="count" value="${ps.length+1}"><div class="row"><button class="btn primary">Save people</button><button type="button" class="btn" data-people-add>Add another</button><button type="button" class="btn" data-people-cancel>Cancel</button></div></form></div>`;
   }
   let share;
-  if(sh) share=`<p class="small" style="margin:8px 0 0"><span class="pill s-booked">Shared</span> Planned by <strong>${esc(nameOf(t,sh.owner))}</strong>. Everyone listed sees the plan, ticks and expenses live until ${esc(fmtDay(addDays(t.end,OPEN_DAYS_AFTER),true))}. After that, only the planner keeps the full trip; the others keep a record (dates, places, people and final balances).${sh.owner!==me?" Only the planner can add or remove people.":""}</p>`;
-  else if(!fbConfig()) share=`<p class="small muted" style="margin:8px 0 0">Saved on this device only. Shared trips need the free Firebase setup (docs/shared-trips.md).</p>`;
-  else if(!verified()) share= CLOUD.user? `<p class="small" style="margin:8px 0 0">Confirm your email first (see the bar at the top of the home page), then share from here.</p>` : `<p class="small" style="margin:8px 0">Sign in to share this trip so everyone sees the same bookings and expenses.</p>${CLOUD.ready?authForm():""}`;
-  else share=`<p class="small" style="margin:8px 0">This trip is only on this device. Share it with the people above so you all see the same bookings, ticks and expenses.</p><button class="btn primary" data-share-group ${ps.some(p=>p.email)?"":"disabled"}>Share with the group</button>${ps.some(p=>p.email)?"":`<span class="small muted"> Add at least one email first.</span>`}`;
-  return `<div class="card" id="people-card"><div class="spread"><h3>People</h3><button class="btn" data-people-edit ${sh&&sh.owner!==me?"disabled":""}>Edit</button></div>
-    ${ps.length?`<ul class="plist">${ps.map(p=>`<li><span class="avatar">${esc((p.name||"?").slice(0,1).toUpperCase())}</span><span><strong>${esc(p.name)}</strong>${p.email===me&&me?` <span class="small muted">(you)</span>`:""}<br><span class="small muted">${p.email?esc(p.email):"No email"}</span></span>${sh&&p.email&&sh.members.includes(p.email)?`<span class="pill s-booked" style="margin-left:auto">Has access</span>`:""}</li>`).join("")}</ul>`:`<p class="small muted">No one added yet.</p>`}
+  if(sh) share=`<p class="small muted" style="margin:8px 0 0">Shared · planned by ${esc(nameOf(t,sh.owner))} · open to everyone until ${esc(fmtDay(addDays(t.end,OPEN_DAYS_AFTER),true))}</p>`;
+  else if(!fbConfig()) share="";
+  else if(!verified()) share= CLOUD.user? `<p class="small muted" style="margin:8px 0 0">Confirm your email to share this trip.</p>` : `<div class="row" style="margin-top:8px"><button class="btn sm" data-acct-open>${S.authOpen?"Close":"Sign in to share"}</button></div>${S.authOpen&&CLOUD.ready?authForm():""}`;
+  else share=`<div class="row" style="margin-top:8px"><button class="btn sm primary" data-share-group ${ps.some(p=>p.email)?"":"disabled"}>Share with the group</button>${ps.some(p=>p.email)?"":`<span class="small muted">Add an email first.</span>`}</div>`;
+  return `<div class="card" id="people-card"><div class="spread"><span></span><button class="linkbtn" data-people-edit ${sh&&sh.owner!==me?"disabled":""}>Edit</button></div>
+    ${ps.length?`<ul class="plist">${ps.map(p=>`<li><span class="avatar">${esc((p.name||"?").slice(0,1).toUpperCase())}</span><span><strong>${esc(p.name)}</strong>${p.email===me&&me?` <span class="small muted">(you)</span>`:""}${p.email?`<br><span class="small muted">${esc(p.email)}</span>`:""}</span>${sh&&p.email&&sh.members.includes(p.email)?`<span class="pill s-booked" style="margin-left:auto">Has access</span>`:""}</li>`).join("")}</ul>`:`<p class="small muted">No one added yet.</p>`}
     ${share}</div>`;
 }
 function savePeople(f){
@@ -2704,7 +2635,7 @@ async function shareGroup(){
 }
 function activityCard(t){
   const A=S.activity[t.id]; if(!isShared(t)) return "";
-  return `<div class="card"><h3>Recent changes</h3>${A&&A.length?`<ul class="alog">${A.slice(0,8).map(a=>`<li><strong>${esc(nameOf(t,a.by))}</strong> ${esc(a.text)} <span class="small muted">· ${esc(ago(a.at))}</span></li>`).join("")}</ul>`:`<p class="small muted" style="margin:0">Nothing yet. Ticks and expenses show here with who made them.</p>`}</div>`;
+  return `<div class="card"><h3>Recent changes</h3>${A&&A.length?`<ul class="alog">${A.slice(0,8).map(a=>`<li><strong>${esc(nameOf(t,a.by))}</strong> ${esc(a.text)} <span class="small muted">· ${esc(ago(a.at))}</span></li>`).join("")}</ul>`:`<p class="small muted" style="margin:0">Nothing yet.</p>`}</div>`;
 }
 
 /* --- expenses --- */
@@ -2736,7 +2667,7 @@ function viewMoney(t){
   const myB=me&&B[me];
   const defSplit=E? E.split.map(k=>canonKey(t,k)) : ps.map(pKey);
   return `
-  ${!me?`<div class="card" style="margin-bottom:12px"><label class="small" for="me-pick"><strong>Which one is you?</strong> So Tripster can show what you owe.</label><select id="me-pick" class="field" style="margin-top:6px"><option value="">Choose…</option>${ps.map(p=>`<option value="${esc(pKey(p))}">${esc(p.name)}</option>`).join("")}</select></div>`:""}
+  ${!me?`<div class="card" style="margin-bottom:12px"><label class="small" for="me-pick"><strong>Which one is you?</strong></label><select id="me-pick" class="field" style="margin-top:6px"><option value="">Choose…</option>${ps.map(p=>`<option value="${esc(pKey(p))}">${esc(p.name)}</option>`).join("")}</select></div>`:""}
   <div class="stats moneystats">
     <div class="card stat"><span class="small muted">Trip spend</span><b class="mono">${fmtMoney(spent,cur)}</b><span class="small muted">${list.filter(x=>x.kind!=="payment").length} expenses</span></div>
     ${myB?`<div class="card stat"><span class="small muted">Your share</span><b class="mono">${fmtMoney(myB.share,cur)}</b><span class="small muted">you paid ${fmtMoney(myB.paid,cur)}</span></div>
@@ -2762,7 +2693,7 @@ function viewMoney(t){
       <span class="small muted">${esc(fmtDay(x.date,true))} · ${x.kind==="payment"?"settle-up":`${esc(nameOf(t,x.paidBy))} paid · split ${keys.length===ps.length?"between everyone":keys.map(k=>nameOf(t,k)).join(", ")}`}</span>
       ${mine&&x.kind!=="payment"?`<br><span class="small">Your share ${fmtMoney(mine,cur)}</span>`:""}${x.by?`<br><span class="small muted">added by ${esc(nameOf(t,x.by))}${x.at?" · "+esc(ago(x.at)):""}</span>`:""}</div>
       <div style="text-align:right"><b class="mono">${fmtMoney(x.amount,cur)}</b><div class="row" style="justify-content:flex-end;margin-top:6px">${x.kind!=="payment"?`<button class="linkbtn small" data-exp-edit="${esc(x.id)}">Edit</button>`:""}<button class="linkbtn small" data-exp-del="${esc(x.id)}">${S.confirm==="exp:"+x.id?"Tap again to delete":"Delete"}</button></div></div></div></li>`; }).join("")}</ul>`:`<div class="empty">No expenses yet. Add the first one above.</div>`}
-  ${!isShared(t)?`<p class="small muted" style="margin-top:12px">Expenses are saved on this device. Share the trip with the group (Overview → People) so everyone adds and sees them.</p>`:""}`;
+`;
 }
 function expEachText(){
   const t=trip(); const el=$("#exp-each"); if(!el||!t) return;
