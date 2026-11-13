@@ -708,7 +708,11 @@ function addDays(iso,n){ const d=dateObj(iso); if(!d) return iso; d.setDate(d.ge
 function daysUntil(iso){ const a=dateObj(iso), b=dateObj(todayISO()); return a&&b? Math.round((a-b)/864e5) : null; }
 function slug(s){ return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[ðÐ]/g,"d").replace(/[þÞ]/g,"th").replace(/[æÆ]/g,"ae").replace(/[øØ]/g,"o").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)||"trip"; }
 function ago(iso){ if(!iso) return ""; const m=Math.round((Date.now()-new Date(iso))/6e4); if(m<1) return "just now"; if(m<60) return m+" min ago"; const h=Math.round(m/60); if(h<36) return h+" h ago"; return Math.round(h/24)+" days ago"; }
-function openTrip(id, tab){ S.tripId=id; store.set("tp.trip",id); S.screen="trip"; S.day=null; S.wxPlace=null; S.wxDate=null; S.placeResults=null; S.confirm=null; S.tab=tab||"overview"; store.set("tp.tab",S.tab); render(); window.scrollTo({top:0}); const t=trip(); if(t) ensureWx(t); }
+function openTrip(id, tab){
+  const card=document.querySelector(`[data-open="${CSS.escape(id)}"] h3`);
+  navMotion("up", ()=>{ S.tripId=id; store.set("tp.trip",id); S.screen="trip"; S.day=null; S.wxPlace=null; S.wxDate=null; S.placeResults=null; S.confirm=null; S.tab=tab||"overview"; store.set("tp.tab",S.tab); render(); window.scrollTo({top:0}); },
+    card? {from:card, to:()=>$("#top h1")} : null);
+  const t=trip(); if(t) ensureWx(t); }
 function persistTrip(t,note){ keepLocal(t); if(isShared(t)) cloudSaveTrip(t,note); else setSource(t.id,"upload"); writeSwState(); }
 
 /* ---------- weather: data ---------- */
@@ -1658,7 +1662,7 @@ function liveSummary(t){
    - Wikidata (structured facts behind Wikipedia): sights by type, photos, and how widely each is covered online
    Tripadvisor has no open feed, so it stays as a link on every place. */
 const WV="https://en.wikivoyage.org/w/api.php", WD="https://query.wikidata.org/sparql", WDAPI="https://www.wikidata.org/w/api.php";
-const APP_VERSION="2.21.0"; // keep in step with VERSION in sw.js
+const APP_VERSION="2.22.0"; // keep in step with VERSION in sw.js
 let COUNTRIES=null, ITINS=null;
 async function countries(){ if(COUNTRIES) return COUNTRIES; try{ COUNTRIES=await (await fetch("data/countries.json")).json(); }catch(e){ COUNTRIES=[]; } return COUNTRIES; }
 function countryByName(name){ const n=String(name||"").trim().toLowerCase(); return (COUNTRIES||[]).find(c=>c.name.toLowerCase()===n||c.wv.toLowerCase()===n)||null; }
@@ -2831,10 +2835,28 @@ function cloudChange(el){
 /* ---------- events ---------- */
 let toastTimer;
 function toast(m){ const el=$("#toast"); el.textContent=m; el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true,2600); }
-function go(tab){ S.screen="trip"; S.tab=tab; store.set("tp.tab",tab); S.confirm=null; render(); window.scrollTo({top:0}); if(tab==="weather"){ const t=trip(); if(t) ensureWx(t); } }
+/* Page and tab changes run through the View Transitions API: the browser snapshots the old and
+   new screens and animates them on the GPU (transform and opacity only). Tabs slide the way you
+   move; opening a trip morphs the tapped trip title into the header. Reduced motion: instant. */
+function navMotion(dir, change, morph){
+  const calm=!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const enter=()=>{ const v=$("#view"); if(!v||calm) return; v.classList.remove("lg-enter"); void v.offsetWidth; v.classList.add("lg-enter"); clearTimeout(navMotion.t); navMotion.t=setTimeout(()=>v.classList.remove("lg-enter"),700); };
+  if(calm){ change(); return; }
+  document.documentElement.dataset.vt=dir;
+  if(morph&&morph.from) morph.from.style.viewTransitionName="trip-title";
+  const vt=document.startViewTransition(()=>{ if(morph&&morph.from) morph.from.style.viewTransitionName=""; change(); const to=morph&&morph.to&&morph.to(); if(to) to.style.viewTransitionName="trip-title"; enter(); });
+  vt.finished.finally(()=>{ delete document.documentElement.dataset.vt; const to=document.querySelector('[style*="trip-title"]'); if(to) to.style.viewTransitionName=""; });
+}
+function go(tab){
+  const from=TABS.findIndex(x=>x[0]===S.tab), to=TABS.findIndex(x=>x[0]===tab);
+  const dir=S.screen!=="trip"? "up" : to<from? "back" : "fwd";
+  navMotion(dir, ()=>{ S.screen="trip"; S.tab=tab; store.set("tp.tab",tab); S.confirm=null; render(); window.scrollTo({top:0}); });
+  if(tab==="weather"){ const t=trip(); if(t) ensureWx(t); }
+}
 document.addEventListener("click", async e=>{
   const el=e.target.closest("button,[data-key],label"); if(!el) return;
-  if(el.hasAttribute("data-home")){ S.screen="home"; S.confirm=null; render(); window.scrollTo({top:0}); return; }
+  if(el.hasAttribute("data-home")){ const id=S.tripId, head=S.screen==="trip"? $("#top h1") : null;
+    navMotion("back", ()=>{ S.screen="home"; S.confirm=null; render(); window.scrollTo({top:0}); }, head&&id? {from:head, to:()=>document.querySelector(`[data-open="${CSS.escape(id)}"] h3`)} : null); return; }
   if(el.dataset.tab) return go(el.dataset.tab);
   if(el.dataset.go) return go(el.dataset.go);
   if(el.dataset.day!==undefined && el.dataset.day){ S.day=el.dataset.day; S.hot=null; if(S.tab!=="days") go("days"); else render(); return; }
